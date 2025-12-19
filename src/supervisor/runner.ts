@@ -1,5 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import { z } from 'zod';
 import { AgentConfig } from '../config/schema.js';
 import { git } from '../repo/git.js';
 import { listChangedFiles } from '../repo/context.js';
@@ -107,19 +108,17 @@ async function handlePlan(state: RunState, options: SupervisorOptions): Promise<
   });
 
   const prompt = buildPlanPrompt(options.taskText);
-  const claudeResult = await runClaude({
+  const parsed = await callClaudeJson<PlanOutput>({
     prompt,
-    repo_path: options.repoPath,
-    command: options.config.commands.claude
+    repoPath: options.repoPath,
+    command: options.config.commands.claude,
+    schema: planOutputSchema
   });
-
-  const output = claudeResult.observations.join('\n');
-  const parsed = parseJsonWithSchema(output, planOutputSchema);
   if (!parsed.data) {
     return stopWithError(state, options, 'plan_parse_failed', parsed.error ?? 'Unknown error');
   }
 
-  const plan = parsed.data as PlanOutput;
+  const plan = parsed.data;
   const updated: RunState = {
     ...state,
     milestones: plan.milestones
@@ -154,19 +153,17 @@ async function handleImplement(state: RunState, options: SupervisorOptions): Pro
     allowDeps: options.allowDeps
   });
 
-  const codexResult = await runCodex({
+  const parsed = await callCodexJson<ImplementerOutput>({
     prompt,
-    repo_path: options.repoPath,
-    command: options.config.commands.codex
+    repoPath: options.repoPath,
+    command: options.config.commands.codex,
+    schema: implementerOutputSchema
   });
-
-  const output = codexResult.observations.join('\n');
-  const parsed = parseJsonWithSchema(output, implementerOutputSchema);
   if (!parsed.data) {
     return stopWithError(state, options, 'implement_parse_failed', parsed.error ?? 'Unknown error');
   }
 
-  const implementer = parsed.data as ImplementerOutput;
+  const implementer = parsed.data;
   options.runStore.writeMemo(
     `milestone_${String(state.milestone_index + 1).padStart(2, '0')}_handoff.md`,
     implementer.handoff_memo
@@ -289,6 +286,9 @@ async function handleReview(state: RunState, options: SupervisorOptions): Promis
   });
 
   const milestone = state.milestones[state.milestone_index];
+  if (!milestone) {
+    return stopWithError(state, options, 'milestone_missing', 'No milestone found.');
+  }
   const diffSummary = await git(['diff', '--stat'], options.repoPath);
   const verifyLogPath = path.join(options.runStore.path, 'artifacts', 'tests_tier0.log');
   const verificationOutput = fs.existsSync(verifyLogPath)
@@ -301,19 +301,17 @@ async function handleReview(state: RunState, options: SupervisorOptions): Promis
     verificationOutput
   });
 
-  const claudeResult = await runClaude({
+  const parsed = await callClaudeJson<ReviewOutput>({
     prompt,
-    repo_path: options.repoPath,
-    command: options.config.commands.claude
+    repoPath: options.repoPath,
+    command: options.config.commands.claude,
+    schema: reviewOutputSchema
   });
-
-  const output = claudeResult.observations.join('\n');
-  const parsed = parseJsonWithSchema(output, reviewOutputSchema);
   if (!parsed.data) {
     return stopWithError(state, options, 'review_parse_failed', parsed.error ?? 'Unknown error');
   }
 
-  const review = parsed.data as ReviewOutput;
+  const review = parsed.data;
   options.runStore.appendEvent({
     type: 'review_complete',
     source: 'claude',
@@ -404,4 +402,66 @@ function stopWithError(
 
 function writeStopMemo(runStore: RunStore, content: string): void {
   runStore.writeMemo('stop.md', content);
+}
+
+async function callClaudeJson<T>(input: {
+  prompt: string;
+  repoPath: string;
+  command: string;
+  schema: z.ZodSchema<T>;
+}): Promise<{ data?: T; error?: string }> {
+  const first = await runClaude({
+    prompt: input.prompt,
+    repo_path: input.repoPath,
+    command: input.command
+  });
+  const firstOutput = first.observations.join('\n');
+  const firstParsed = parseJsonWithSchema(firstOutput, input.schema);
+  if (firstParsed.data) {
+    return { data: firstParsed.data };
+  }
+
+  const retryPrompt = `${input.prompt}\n\nOutput JSON only between BEGIN_JSON and END_JSON.`;
+  const retry = await runClaude({
+    prompt: retryPrompt,
+    repo_path: input.repoPath,
+    command: input.command
+  });
+  const retryOutput = retry.observations.join('\n');
+  const retryParsed = parseJsonWithSchema(retryOutput, input.schema);
+  if (retryParsed.data) {
+    return { data: retryParsed.data };
+  }
+  return { error: retryParsed.error ?? firstParsed.error ?? 'JSON parse failed' };
+}
+
+async function callCodexJson<T>(input: {
+  prompt: string;
+  repoPath: string;
+  command: string;
+  schema: z.ZodSchema<T>;
+}): Promise<{ data?: T; error?: string }> {
+  const first = await runCodex({
+    prompt: input.prompt,
+    repo_path: input.repoPath,
+    command: input.command
+  });
+  const firstOutput = first.observations.join('\n');
+  const firstParsed = parseJsonWithSchema(firstOutput, input.schema);
+  if (firstParsed.data) {
+    return { data: firstParsed.data };
+  }
+
+  const retryPrompt = `${input.prompt}\n\nOutput JSON only between BEGIN_JSON and END_JSON.`;
+  const retry = await runCodex({
+    prompt: retryPrompt,
+    repo_path: input.repoPath,
+    command: input.command
+  });
+  const retryOutput = retry.observations.join('\n');
+  const retryParsed = parseJsonWithSchema(retryOutput, input.schema);
+  if (retryParsed.data) {
+    return { data: retryParsed.data };
+  }
+  return { error: retryParsed.error ?? firstParsed.error ?? 'JSON parse failed' };
 }

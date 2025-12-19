@@ -22,9 +22,13 @@ export async function runVerification(
       output += result.all ? `${result.all}\n` : '';
     } catch (error) {
       ok = false;
-      if (error instanceof Error) {
-        output += `${error.message}\n`;
-      }
+      const errorOutput =
+        typeof (error as { all?: string }).all === 'string'
+          ? (error as { all?: string }).all
+          : error instanceof Error
+            ? error.message
+            : 'Verification command failed';
+      output += `${errorOutput}\n`;
       break;
     }
   }

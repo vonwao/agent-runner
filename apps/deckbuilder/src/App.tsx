@@ -1,0 +1,54 @@
+import { useState } from 'react';
+import { createInitialState, step, Action } from './engine/engine';
+
+export default function App() {
+  const [state, setState] = useState(() => createInitialState(1));
+
+  const dispatch = (action: Action) => {
+    setState((current) => step(current, action));
+  };
+
+  return (
+    <main style={{ fontFamily: 'sans-serif', padding: 24 }}>
+      <h1>Deckbuilder Prototype</h1>
+      <section style={{ marginBottom: 16 }}>
+        <h2>Player</h2>
+        <p>HP: {state.player.hp}</p>
+        <p>Energy: {state.player.energy}</p>
+      </section>
+      <section style={{ marginBottom: 16 }}>
+        <h2>Enemy</h2>
+        <p>HP: {state.enemy.hp}</p>
+        <p>Intent: {state.enemy.intent}</p>
+      </section>
+      <section style={{ marginBottom: 16 }}>
+        <h2>Hand</h2>
+        {state.player.hand.length === 0 ? (
+          <p>(empty)</p>
+        ) : (
+          <ul>
+            {state.player.hand.map((card) => (
+              <li key={card.id}>
+                {card.name} (cost {card.cost}, dmg {card.damage}){' '}
+                <button
+                  type="button"
+                  onClick={() => dispatch({ type: 'play_card', cardId: card.id })}
+                >
+                  Play
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
+      <section style={{ display: 'flex', gap: 12 }}>
+        <button type="button" onClick={() => dispatch({ type: 'draw' })}>
+          Draw
+        </button>
+        <button type="button" onClick={() => dispatch({ type: 'end_turn' })}>
+          End Turn
+        </button>
+      </section>
+    </main>
+  );
+}

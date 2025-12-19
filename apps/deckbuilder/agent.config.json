@@ -1,0 +1,43 @@
+{
+  "agent": {
+    "name": "deckbuilder-fixture",
+    "version": "1"
+  },
+  "repo": {
+    "default_branch": "main"
+  },
+  "scope": {
+    "allowlist": [
+      "apps/deckbuilder/src/**",
+      "apps/deckbuilder/index.html",
+      "apps/deckbuilder/vite.config.ts",
+      "apps/deckbuilder/package.json",
+      "apps/deckbuilder/tsconfig.json",
+      "apps/deckbuilder/eslint.config.cjs"
+    ],
+    "denylist": ["**/node_modules/**"],
+    "lockfiles": ["package-lock.json", "pnpm-lock.yaml", "yarn.lock"]
+  },
+  "verification": {
+    "tier0": ["npm run lint", "npm run typecheck", "npm run test"],
+    "tier1": [],
+    "tier2": [],
+    "risk_triggers": [
+      {
+        "name": "deps",
+        "patterns": ["apps/deckbuilder/package.json"],
+        "tier": "tier1"
+      },
+      {
+        "name": "engine",
+        "patterns": ["apps/deckbuilder/src/engine/**"],
+        "tier": "tier1"
+      }
+    ],
+    "max_verify_time_per_milestone": 600
+  },
+  "commands": {
+    "codex": "codex",
+    "claude": "claude"
+  }
+}
