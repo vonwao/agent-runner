@@ -19,7 +19,7 @@
       {
         "name": "deps",
         "patterns": ["package.json", "package-lock.json", "pnpm-lock.yaml", "yarn.lock"],
-        "tier": "tier2"
+        "tier": "tier1"
       },
       {
         "name": "auth",

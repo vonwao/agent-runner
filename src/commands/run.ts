@@ -4,7 +4,8 @@ import { loadConfig, resolveConfigPath } from '../config/load.js';
 import { RunStore } from '../store/run-store.js';
 import { buildRepoContext } from '../repo/context.js';
 import { git, gitOptional } from '../repo/git.js';
-import { createInitialState, updatePhase } from '../supervisor/state-machine.js';
+import { createInitialState, stopRun, updatePhase } from '../supervisor/state-machine.js';
+import { checkLockfiles, checkScope } from '../supervisor/scope-guard.js';
 
 export interface RunOptions {
   repo: string;
@@ -68,12 +69,6 @@ export async function runCommand(options: RunOptions): Promise<void> {
     config.repo.default_branch ?? 'main'
   );
 
-  await ensureRunBranch(
-    repoContext.git_root,
-    repoContext.run_branch,
-    repoContext.default_branch
-  );
-
   runStore.appendEvent({
     type: 'run_started',
     source: 'cli',
@@ -85,6 +80,58 @@ export async function runCommand(options: RunOptions): Promise<void> {
       web: options.web
     }
   });
+
+  const scopeCheck = checkScope(
+    repoContext.changed_files,
+    config.scope.allowlist,
+    config.scope.denylist
+  );
+  const lockfileCheck = checkLockfiles(
+    repoContext.changed_files,
+    config.scope.lockfiles,
+    options.allowDeps
+  );
+
+  if (!scopeCheck.ok || !lockfileCheck.ok) {
+    let state = createInitialState({
+      run_id: runId,
+      repo_path: repoPath,
+      task_text: taskText,
+      allowlist: config.scope.allowlist,
+      denylist: config.scope.denylist
+    });
+    state = stopRun(state, 'guard_violation');
+    runStore.writeState(state);
+    runStore.appendEvent({
+      type: 'guard_violation',
+      source: 'cli',
+      payload: {
+        scope_violations: scopeCheck.violations,
+        lockfile_violations: lockfileCheck.violations
+      }
+    });
+    const summary = [
+      '# Summary',
+      '',
+      'Run stopped due to guard violations.',
+      '',
+      'Scope violations:',
+      scopeCheck.violations.length ? `- ${scopeCheck.violations.join('\\n- ')}` : '- None',
+      '',
+      'Lockfile violations:',
+      lockfileCheck.violations.length
+        ? `- ${lockfileCheck.violations.join('\\n- ')}`
+        : '- None'
+    ].join('\\n');
+    runStore.writeSummary(summary);
+    return;
+  }
+
+  await ensureRunBranch(
+    repoContext.git_root,
+    repoContext.run_branch,
+    repoContext.default_branch
+  );
 
   let state = createInitialState({
     run_id: runId,

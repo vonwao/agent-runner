@@ -16,8 +16,8 @@ export function selectTiers(
   tiers.add('tier0');
 
   const triggered = triggerTiers(policy, context.changed_files);
-  for (const tier of triggered) {
-    tiers.add(tier);
+  if (triggered.some((tier) => tier !== 'tier0')) {
+    tiers.add('tier1');
   }
 
   if (context.is_milestone_end || context.risk_level === 'high') {
@@ -28,7 +28,8 @@ export function selectTiers(
     tiers.add('tier2');
   }
 
-  return Array.from(tiers);
+  const ordered: VerificationTier[] = ['tier0', 'tier1', 'tier2'];
+  return ordered.filter((tier) => tiers.has(tier));
 }
 
 export function triggerTiers(
@@ -44,7 +45,8 @@ export function triggerTiers(
   for (const trigger of policy.risk_triggers) {
     const matcher = picomatch(trigger.patterns);
     if (files.some((file) => matcher(file))) {
-      tiers.add(trigger.tier);
+      const tier = trigger.tier === 'tier2' ? 'tier1' : trigger.tier;
+      tiers.add(tier);
     }
   }
   return Array.from(tiers);
