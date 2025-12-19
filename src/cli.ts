@@ -23,6 +23,7 @@ program
   .option('--no-write', 'Do not write run artifacts')
   .option('--web', 'Allow web access for unblock', false)
   .option('--dry-run', 'Initialize run without executing', false)
+  .option('--max-ticks <count>', 'Max supervisor ticks', '10')
   .action(async (options) => {
     const noBranch = options.branch === false;
     const noWrite = options.write === false;
@@ -36,7 +37,8 @@ program
       web: options.web,
       dryRun: options.dryRun,
       noBranch,
-      noWrite
+      noWrite,
+      maxTicks: Number.parseInt(options.maxTicks, 10)
     });
   });
 

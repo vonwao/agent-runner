@@ -32,12 +32,11 @@ export async function getCurrentBranch(repoPath: string): Promise<string> {
 
 export async function listChangedFiles(gitRoot: string): Promise<string[]> {
   const result = await git(['status', '--porcelain'], gitRoot);
-  if (!result.stdout.trim()) {
+  const lines = result.stdout.split('\n').filter((line) => line.trim().length > 0);
+  if (lines.length === 0) {
     return [];
   }
-  return result.stdout
-    .split('\n')
-    .filter((line) => line.length > 0)
+  return lines
     .map((line) => line.slice(3))
     .map((entry) => {
       const arrow = entry.indexOf('->');

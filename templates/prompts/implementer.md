@@ -8,3 +8,5 @@ When blocked, output the block protocol:
 - Experiment
 - Decision
 - Next action
+
+Return ONLY machine-readable JSON between BEGIN_JSON and END_JSON.

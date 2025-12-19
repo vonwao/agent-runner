@@ -1,0 +1,407 @@
+import fs from 'node:fs';
+import path from 'node:path';
+import { AgentConfig } from '../config/schema.js';
+import { git } from '../repo/git.js';
+import { listChangedFiles } from '../repo/context.js';
+import { RunStore } from '../store/run-store.js';
+import { RunState } from '../types/schemas.js';
+import { buildImplementPrompt, buildPlanPrompt, buildReviewPrompt } from '../workers/prompts.js';
+import { runClaude } from '../workers/claude.js';
+import { runCodex } from '../workers/codex.js';
+import {
+  ImplementerOutput,
+  PlanOutput,
+  ReviewOutput,
+  implementerOutputSchema,
+  planOutputSchema,
+  reviewOutputSchema
+} from '../workers/schemas.js';
+import { parseJsonWithSchema } from '../workers/json.js';
+import { checkLockfiles, checkScope } from './scope-guard.js';
+import { commandsForTier, selectTiersWithReasons } from './verification-policy.js';
+import { runVerification } from '../verification/engine.js';
+import { stopRun, updatePhase } from './state-machine.js';
+
+export interface SupervisorOptions {
+  runStore: RunStore;
+  repoPath: string;
+  taskText: string;
+  config: AgentConfig;
+  timeBudgetMinutes: number;
+  maxTicks: number;
+  allowDeps: boolean;
+}
+
+const DEFAULT_STOP_MEMO = [
+  '# Stop Memo',
+  '',
+  "What's done:",
+  '- ',
+  '',
+  "What's broken:",
+  '- ',
+  '',
+  'Best next step (one command):',
+  '- ',
+  '',
+  'Risk notes:',
+  '- ',
+  '',
+  'Where to look:',
+  '- '
+].join('\n');
+
+export async function runSupervisorLoop(options: SupervisorOptions): Promise<void> {
+  const startTime = Date.now();
+
+  for (let tick = 0; tick < options.maxTicks; tick += 1) {
+    let state = options.runStore.readState();
+    if (state.phase === 'STOPPED') {
+      break;
+    }
+
+    const elapsedMinutes = (Date.now() - startTime) / 60000;
+    if (elapsedMinutes >= options.timeBudgetMinutes) {
+      state = stopRun(state, 'time_budget_exceeded');
+      options.runStore.writeState(state);
+      options.runStore.appendEvent({
+        type: 'stop',
+        source: 'supervisor',
+        payload: { reason: 'time_budget_exceeded' }
+      });
+      writeStopMemo(options.runStore, DEFAULT_STOP_MEMO);
+      break;
+    }
+
+    state = await runPhase(state, options);
+    options.runStore.writeState(state);
+  }
+}
+
+async function runPhase(state: RunState, options: SupervisorOptions): Promise<RunState> {
+  switch (state.phase) {
+    case 'PLAN':
+      return handlePlan(state, options);
+    case 'IMPLEMENT':
+      return handleImplement(state, options);
+    case 'VERIFY':
+      return handleVerify(state, options);
+    case 'REVIEW':
+      return handleReview(state, options);
+    case 'CHECKPOINT':
+      return handleCheckpoint(state, options);
+    case 'FINALIZE':
+      return handleFinalize(state, options);
+    case 'INIT':
+      return updatePhase(state, 'PLAN');
+    default:
+      return state;
+  }
+}
+
+async function handlePlan(state: RunState, options: SupervisorOptions): Promise<RunState> {
+  options.runStore.appendEvent({
+    type: 'phase_start',
+    source: 'supervisor',
+    payload: { phase: 'PLAN' }
+  });
+
+  const prompt = buildPlanPrompt(options.taskText);
+  const claudeResult = await runClaude({
+    prompt,
+    repo_path: options.repoPath,
+    command: options.config.commands.claude
+  });
+
+  const output = claudeResult.observations.join('\n');
+  const parsed = parseJsonWithSchema(output, planOutputSchema);
+  if (!parsed.data) {
+    return stopWithError(state, options, 'plan_parse_failed', parsed.error ?? 'Unknown error');
+  }
+
+  const plan = parsed.data as PlanOutput;
+  const updated: RunState = {
+    ...state,
+    milestones: plan.milestones
+  };
+
+  options.runStore.writePlan(JSON.stringify(plan, null, 2));
+  options.runStore.appendEvent({
+    type: 'plan_generated',
+    source: 'claude',
+    payload: plan
+  });
+
+  return updatePhase(updated, 'IMPLEMENT');
+}
+
+async function handleImplement(state: RunState, options: SupervisorOptions): Promise<RunState> {
+  options.runStore.appendEvent({
+    type: 'phase_start',
+    source: 'supervisor',
+    payload: { phase: 'IMPLEMENT' }
+  });
+
+  const milestone = state.milestones[state.milestone_index];
+  if (!milestone) {
+    return stopWithError(state, options, 'milestone_missing', 'No milestone found.');
+  }
+
+  const prompt = buildImplementPrompt({
+    milestone,
+    scopeAllowlist: state.scope_lock.allowlist,
+    scopeDenylist: state.scope_lock.denylist,
+    allowDeps: options.allowDeps
+  });
+
+  const codexResult = await runCodex({
+    prompt,
+    repo_path: options.repoPath,
+    command: options.config.commands.codex
+  });
+
+  const output = codexResult.observations.join('\n');
+  const parsed = parseJsonWithSchema(output, implementerOutputSchema);
+  if (!parsed.data) {
+    return stopWithError(state, options, 'implement_parse_failed', parsed.error ?? 'Unknown error');
+  }
+
+  const implementer = parsed.data as ImplementerOutput;
+  options.runStore.writeMemo(
+    `milestone_${String(state.milestone_index + 1).padStart(2, '0')}_handoff.md`,
+    implementer.handoff_memo
+  );
+
+  if (implementer.status !== 'ok') {
+    return stopWithError(state, options, 'implement_blocked', implementer.handoff_memo);
+  }
+
+  const changedFiles = await listChangedFiles(options.repoPath);
+  const scopeCheck = checkScope(
+    changedFiles,
+    state.scope_lock.allowlist,
+    state.scope_lock.denylist
+  );
+  const lockfileCheck = checkLockfiles(
+    changedFiles,
+    options.config.scope.lockfiles,
+    options.allowDeps
+  );
+
+  if (!scopeCheck.ok || !lockfileCheck.ok) {
+    options.runStore.appendEvent({
+      type: 'guard_violation',
+      source: 'supervisor',
+      payload: {
+        scope_violations: scopeCheck.violations,
+        lockfile_violations: lockfileCheck.violations
+      }
+    });
+    return stopWithError(state, options, 'guard_violation', 'Guard violation detected.');
+  }
+
+  options.runStore.appendEvent({
+    type: 'implement_complete',
+    source: 'codex',
+    payload: {
+      changed_files: changedFiles,
+      handoff_memo: implementer.handoff_memo
+    }
+  });
+
+  return updatePhase(state, 'VERIFY');
+}
+
+async function handleVerify(state: RunState, options: SupervisorOptions): Promise<RunState> {
+  options.runStore.appendEvent({
+    type: 'phase_start',
+    source: 'supervisor',
+    payload: { phase: 'VERIFY' }
+  });
+
+  const changedFiles = await listChangedFiles(options.repoPath);
+  const selection = selectTiersWithReasons(options.config.verification, {
+    changed_files: changedFiles,
+    risk_level: state.milestones[state.milestone_index]?.risk_level ?? 'medium',
+    is_milestone_end: false,
+    is_run_end: false
+  });
+
+  const results: string[] = [];
+  const start = Date.now();
+  for (const tier of selection.tiers) {
+    const elapsed = (Date.now() - start) / 1000;
+    const remaining = options.config.verification.max_verify_time_per_milestone - elapsed;
+    if (remaining <= 0) {
+      results.push(`Tier ${tier} skipped: time budget exceeded.`);
+      break;
+    }
+
+    const commands = commandsForTier(options.config.verification, tier);
+    if (commands.length === 0) {
+      results.push(`Tier ${tier}: no commands configured.`);
+      continue;
+    }
+
+    const verifyResult = await runVerification(
+      tier,
+      commands,
+      options.repoPath,
+      Math.floor(remaining)
+    );
+    const artifactName = `tests_${tier}.log`;
+    options.runStore.writeArtifact(artifactName, verifyResult.output);
+    results.push(`Tier ${tier}: ${verifyResult.ok ? 'ok' : 'failed'}`);
+
+    options.runStore.appendEvent({
+      type: 'verification',
+      source: 'verifier',
+      payload: {
+        tier,
+        ok: verifyResult.ok,
+        commands,
+        duration_ms: verifyResult.duration_ms
+      }
+    });
+
+    if (!verifyResult.ok) {
+      return stopWithError(state, options, 'verification_failed', verifyResult.output);
+    }
+  }
+
+  options.runStore.appendEvent({
+    type: 'verify_complete',
+    source: 'verifier',
+    payload: {
+      results,
+      tier_reasons: selection.reasons
+    }
+  });
+
+  return updatePhase(state, 'REVIEW');
+}
+
+async function handleReview(state: RunState, options: SupervisorOptions): Promise<RunState> {
+  options.runStore.appendEvent({
+    type: 'phase_start',
+    source: 'supervisor',
+    payload: { phase: 'REVIEW' }
+  });
+
+  const milestone = state.milestones[state.milestone_index];
+  const diffSummary = await git(['diff', '--stat'], options.repoPath);
+  const verifyLogPath = path.join(options.runStore.path, 'artifacts', 'tests_tier0.log');
+  const verificationOutput = fs.existsSync(verifyLogPath)
+    ? fs.readFileSync(verifyLogPath, 'utf-8')
+    : '';
+
+  const prompt = buildReviewPrompt({
+    milestone,
+    diffSummary: diffSummary.stdout.trim(),
+    verificationOutput
+  });
+
+  const claudeResult = await runClaude({
+    prompt,
+    repo_path: options.repoPath,
+    command: options.config.commands.claude
+  });
+
+  const output = claudeResult.observations.join('\n');
+  const parsed = parseJsonWithSchema(output, reviewOutputSchema);
+  if (!parsed.data) {
+    return stopWithError(state, options, 'review_parse_failed', parsed.error ?? 'Unknown error');
+  }
+
+  const review = parsed.data as ReviewOutput;
+  options.runStore.appendEvent({
+    type: 'review_complete',
+    source: 'claude',
+    payload: review
+  });
+
+  if (review.status === 'request_changes') {
+    options.runStore.writeMemo(
+      `milestone_${String(state.milestone_index + 1).padStart(2, '0')}_review.md`,
+      review.changes.join('\n')
+    );
+    return updatePhase(state, 'IMPLEMENT');
+  }
+
+  return updatePhase(state, 'CHECKPOINT');
+}
+
+async function handleCheckpoint(state: RunState, options: SupervisorOptions): Promise<RunState> {
+  options.runStore.appendEvent({
+    type: 'phase_start',
+    source: 'supervisor',
+    payload: { phase: 'CHECKPOINT' }
+  });
+
+  const status = await git(['status', '--porcelain'], options.repoPath);
+  if (status.stdout.trim().length > 0) {
+    await git(['add', '-A'], options.repoPath);
+    const message = `chore(agent): checkpoint milestone ${state.milestone_index + 1}`;
+    await git(['commit', '-m', message], options.repoPath);
+  }
+
+  const shaResult = await git(['rev-parse', 'HEAD'], options.repoPath);
+  const nextIndex = state.milestone_index + 1;
+  const updated: RunState = {
+    ...state,
+    checkpoint_commit_sha: shaResult.stdout.trim(),
+    milestone_index: nextIndex
+  };
+
+  options.runStore.appendEvent({
+    type: 'checkpoint_complete',
+    source: 'supervisor',
+    payload: {
+      commit: updated.checkpoint_commit_sha,
+      milestone_index: state.milestone_index
+    }
+  });
+
+  if (nextIndex >= updated.milestones.length) {
+    return updatePhase(updated, 'FINALIZE');
+  }
+
+  return updatePhase(updated, 'IMPLEMENT');
+}
+
+async function handleFinalize(state: RunState, options: SupervisorOptions): Promise<RunState> {
+  options.runStore.appendEvent({
+    type: 'phase_start',
+    source: 'supervisor',
+    payload: { phase: 'FINALIZE' }
+  });
+
+  const summary = ['# Summary', '', 'Run completed.'].join('\n');
+  options.runStore.writeSummary(summary);
+  writeStopMemo(options.runStore, DEFAULT_STOP_MEMO);
+
+  return stopRun(state, 'complete');
+}
+
+function stopWithError(
+  state: RunState,
+  options: SupervisorOptions,
+  reason: string,
+  error: string
+): RunState {
+  const updated = stopRun({
+    ...state,
+    last_error: error
+  }, reason);
+  options.runStore.appendEvent({
+    type: 'stop',
+    source: 'supervisor',
+    payload: { reason, error }
+  });
+  writeStopMemo(options.runStore, DEFAULT_STOP_MEMO);
+  return updated;
+}
+
+function writeStopMemo(runStore: RunStore, content: string): void {
+  runStore.writeMemo('stop.md', content);
+}

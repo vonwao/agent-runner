@@ -25,25 +25,33 @@ export function createInitialState(input: InitStateInput): RunState {
     risk_score: 0,
     retries: 0,
     resume_token: input.run_id,
+    phase_started_at: now,
+    phase_attempt: 0,
     started_at: now,
     updated_at: now
   };
 }
 
 export function updatePhase(state: RunState, phase: RunState['phase']): RunState {
+  const now = new Date().toISOString();
+  const phaseAttempt = state.phase === phase ? state.phase_attempt + 1 : 1;
   return {
     ...state,
     phase,
-    last_successful_phase: phase,
-    updated_at: new Date().toISOString()
+    last_successful_phase: state.phase,
+    phase_started_at: now,
+    phase_attempt: phaseAttempt,
+    updated_at: now
   };
 }
 
 export function stopRun(state: RunState, reason: string): RunState {
+  const now = new Date().toISOString();
   return {
     ...state,
-    phase: 'DONE',
+    phase: 'STOPPED',
     stop_reason: reason,
-    updated_at: new Date().toISOString()
+    updated_at: now,
+    phase_started_at: now
   };
 }

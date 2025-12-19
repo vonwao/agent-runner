@@ -5,8 +5,9 @@ export type Phase =
   | 'IMPLEMENT'
   | 'VERIFY'
   | 'REVIEW'
+  | 'CHECKPOINT'
   | 'FINALIZE'
-  | 'DONE'
+  | 'STOPPED'
   | 'BLOCKED'
   | 'ESCALATED';
 
@@ -40,6 +41,8 @@ export interface RunState {
   last_successful_phase?: Phase;
   resume_token?: string;
   tier_reasons?: string[];
+  phase_started_at: string;
+  phase_attempt: number;
   started_at: string;
   updated_at: string;
   stop_reason?: string;

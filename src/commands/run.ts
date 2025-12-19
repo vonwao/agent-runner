@@ -6,6 +6,7 @@ import { git, gitOptional } from '../repo/git.js';
 import { buildMilestonesFromTask } from '../supervisor/planner.js';
 import { createInitialState, stopRun, updatePhase } from '../supervisor/state-machine.js';
 import { runPreflight } from './preflight.js';
+import { runSupervisorLoop } from '../supervisor/runner.js';
 
 export interface RunOptions {
   repo: string;
@@ -18,6 +19,7 @@ export interface RunOptions {
   dryRun: boolean;
   noBranch: boolean;
   noWrite: boolean;
+  maxTicks: number;
 }
 
 function makeRunId(): string {
@@ -114,7 +116,8 @@ export async function runCommand(options: RunOptions): Promise<void> {
         allow_dirty: options.allowDirty,
         web: options.web,
         no_branch: options.noBranch,
-        dry_run: options.dryRun
+        dry_run: options.dryRun,
+        max_ticks: options.maxTicks
       }
     });
     runStore.appendEvent({
@@ -226,6 +229,15 @@ export async function runCommand(options: RunOptions): Promise<void> {
 
   if (runStore) {
     runStore.writeSummary('# Summary\n\nRun initialized. Supervisor loop not yet executed.');
+    await runSupervisorLoop({
+      runStore,
+      repoPath,
+      taskText,
+      config,
+      timeBudgetMinutes: options.time,
+      maxTicks: options.maxTicks,
+      allowDeps: options.allowDeps
+    });
   }
 
   console.log(summaryLine);
