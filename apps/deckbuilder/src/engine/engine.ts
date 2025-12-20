@@ -8,6 +8,7 @@ export function createInitialState(seed: number): GameState {
     rng: { seed },
     player: {
       hp: 40,
+      block: 0,
       energy: 3,
       deck: [...starterDeck],
       hand: [],
