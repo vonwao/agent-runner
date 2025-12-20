@@ -17,7 +17,7 @@ export function createInitialState(seed: number): GameState {
     enemy: {
       hp: 30,
       intent: 'attack',
-      damage: 5
+      damage: 6
     }
   };
 }
@@ -75,7 +75,7 @@ function playCard(state: GameState, card: Card): GameState {
 
 function enemyTurn(state: GameState): GameState {
   if (state.enemy.intent === 'attack') {
-    const nextPlayer = applyDamage(state.player, state.enemy.damage);
+    const nextPlayer = applyDamage(state.player, 6);
     return {
       ...state,
       player: nextPlayer
