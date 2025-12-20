@@ -34,8 +34,16 @@
     ],
     "max_verify_time_per_milestone": 600
   },
-  "commands": {
-    "codex": "codex",
-    "claude": "claude"
+  "workers": {
+    "codex": {
+      "bin": "codex",
+      "args": ["exec", "--full-auto", "--json"],
+      "output": "jsonl"
+    },
+    "claude": {
+      "bin": "claude",
+      "args": ["-p", "--output-format", "json", "--dangerously-skip-permissions"],
+      "output": "json"
+    }
   }
 }

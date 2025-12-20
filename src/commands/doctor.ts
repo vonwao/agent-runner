@@ -1,0 +1,132 @@
+import { execa } from 'execa';
+import path from 'node:path';
+import { loadConfig, resolveConfigPath } from '../config/load.js';
+import { WorkerConfig } from '../config/schema.js';
+
+export interface DoctorOptions {
+  config?: string;
+  repo?: string;
+}
+
+interface WorkerCheck {
+  name: string;
+  bin: string;
+  version: string | null;
+  headless: boolean;
+  error: string | null;
+}
+
+async function checkWorker(
+  name: string,
+  worker: WorkerConfig,
+  repoPath: string
+): Promise<WorkerCheck> {
+  const result: WorkerCheck = {
+    name,
+    bin: worker.bin,
+    version: null,
+    headless: false,
+    error: null
+  };
+
+  // Check version
+  try {
+    const versionResult = await execa(worker.bin, ['--version'], {
+      timeout: 5000,
+      reject: false
+    });
+    if (versionResult.exitCode === 0) {
+      result.version = versionResult.stdout.trim().split('\n')[0];
+    } else {
+      result.error = `Version check failed: ${versionResult.stderr || 'unknown error'}`;
+      return result;
+    }
+  } catch (err) {
+    result.error = `Command not found: ${worker.bin}`;
+    return result;
+  }
+
+  // Check headless mode with a simple ping
+  try {
+    const testPrompt = 'Respond with exactly: PING_OK';
+    let testArgs: string[];
+
+    if (name === 'codex') {
+      testArgs = ['exec', '--full-auto', '--json', '-C', repoPath];
+    } else {
+      testArgs = ['-p', '--output-format', 'json', '--dangerously-skip-permissions'];
+    }
+
+    const headlessResult = await execa(worker.bin, testArgs, {
+      input: testPrompt,
+      timeout: 30000,
+      reject: false,
+      cwd: repoPath
+    });
+
+    if (headlessResult.exitCode === 0) {
+      result.headless = true;
+    } else {
+      const stderr = headlessResult.stderr || '';
+      if (stderr.includes('stdin is not a terminal')) {
+        result.error = 'Headless mode not supported (stdin is not a terminal)';
+      } else {
+        result.error = `Headless test failed: ${stderr.slice(0, 100)}`;
+      }
+    }
+  } catch (err) {
+    result.error = `Headless test error: ${(err as Error).message}`;
+  }
+
+  return result;
+}
+
+export async function doctorCommand(options: DoctorOptions): Promise<void> {
+  const repoPath = path.resolve(options.repo || '.');
+  const configPath = resolveConfigPath(repoPath, options.config);
+
+  console.log('Doctor Check');
+  console.log('============\n');
+
+  let config;
+  try {
+    config = loadConfig(configPath);
+    console.log(`Config: ${configPath}`);
+    console.log(`Repo: ${repoPath}\n`);
+  } catch (err) {
+    console.log(`Config: FAIL - ${(err as Error).message}`);
+    process.exitCode = 1;
+    return;
+  }
+
+  const workers = config.workers;
+  const checks: WorkerCheck[] = [];
+
+  console.log('Workers\n-------');
+
+  for (const [name, workerConfig] of Object.entries(workers)) {
+    const check = await checkWorker(name, workerConfig, repoPath);
+    checks.push(check);
+
+    const status = check.error ? 'FAIL' : 'PASS';
+    const version = check.version || 'unknown';
+    const headless = check.headless ? 'headless OK' : 'headless FAIL';
+
+    console.log(`${name}: ${status}`);
+    console.log(`  bin: ${check.bin}`);
+    console.log(`  version: ${version}`);
+    console.log(`  ${headless}`);
+    if (check.error) {
+      console.log(`  error: ${check.error}`);
+    }
+    console.log('');
+  }
+
+  const failed = checks.filter((c) => c.error);
+  if (failed.length > 0) {
+    console.log(`\nResult: ${failed.length} worker(s) failed`);
+    process.exitCode = 1;
+  } else {
+    console.log('\nResult: All workers OK');
+  }
+}

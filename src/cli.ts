@@ -4,6 +4,7 @@ import { resumeCommand } from './commands/resume.js';
 import { statusCommand } from './commands/status.js';
 import { reportCommand } from './commands/report.js';
 import { guardsOnlyCommand } from './commands/guards-only.js';
+import { doctorCommand } from './commands/doctor.js';
 
 const program = new Command();
 
@@ -92,6 +93,18 @@ program
   .option('--tail <count>', 'Tail last N events', '50')
   .action(async (runId: string, options) => {
     await reportCommand({ runId, tail: Number.parseInt(options.tail, 10) });
+  });
+
+program
+  .command('doctor')
+  .description('Check worker CLI availability and headless mode')
+  .option('--repo <path>', 'Target repo path', '.')
+  .option('--config <path>', 'Path to agent.config.json')
+  .action(async (options) => {
+    await doctorCommand({
+      repo: options.repo,
+      config: options.config
+    });
   });
 
 program.parseAsync();

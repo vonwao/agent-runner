@@ -31,9 +31,23 @@ const repoSchema = z.object({
   default_branch: z.string().optional()
 });
 
-const commandsSchema = z.object({
-  codex: z.string().default('codex'),
-  claude: z.string().default('claude')
+const workerConfigSchema = z.object({
+  bin: z.string(),
+  args: z.array(z.string()).default([]),
+  output: z.enum(['text', 'json', 'jsonl']).default('text')
+});
+
+const workersSchema = z.object({
+  codex: workerConfigSchema.default({
+    bin: 'codex',
+    args: ['exec', '--full-auto', '--json'],
+    output: 'jsonl'
+  }),
+  claude: workerConfigSchema.default({
+    bin: 'claude',
+    args: ['-p', '--output-format', 'json', '--dangerously-skip-permissions'],
+    output: 'json'
+  })
 });
 
 export const agentConfigSchema = z.object({
@@ -41,7 +55,9 @@ export const agentConfigSchema = z.object({
   repo: repoSchema.default({}),
   scope: scopeSchema,
   verification: verificationSchema,
-  commands: commandsSchema
+  workers: workersSchema.default({})
 });
+
+export type WorkerConfig = z.infer<typeof workerConfigSchema>;
 
 export type AgentConfig = z.infer<typeof agentConfigSchema>;

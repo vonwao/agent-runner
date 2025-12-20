@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { z } from 'zod';
-import { AgentConfig } from '../config/schema.js';
+import { AgentConfig, WorkerConfig } from '../config/schema.js';
 import { git } from '../repo/git.js';
 import { listChangedFiles } from '../repo/context.js';
 import { RunStore } from '../store/run-store.js';
@@ -108,7 +108,7 @@ async function handlePlan(state: RunState, options: SupervisorOptions): Promise<
   const parsed = await callClaudeJson({
     prompt,
     repoPath: options.repoPath,
-    command: options.config.commands.claude,
+    worker: options.config.workers.claude,
     schema: planOutputSchema
   });
   if (!parsed.data) {
@@ -164,7 +164,7 @@ async function handleImplement(state: RunState, options: SupervisorOptions): Pro
   const parsed = await callCodexJson({
     prompt,
     repoPath: options.repoPath,
-    command: options.config.commands.codex,
+    worker: options.config.workers.codex,
     schema: implementerOutputSchema
   });
   if (!parsed.data) {
@@ -323,7 +323,7 @@ async function handleReview(state: RunState, options: SupervisorOptions): Promis
   const parsed = await callClaudeJson({
     prompt,
     repoPath: options.repoPath,
-    command: options.config.commands.claude,
+    worker: options.config.workers.claude,
     schema: reviewOutputSchema
   });
   if (!parsed.data) {
@@ -437,13 +437,13 @@ function writeStopMemo(runStore: RunStore, content: string): void {
 async function callClaudeJson<S extends z.ZodTypeAny>(input: {
   prompt: string;
   repoPath: string;
-  command: string;
+  worker: WorkerConfig;
   schema: S;
 }): Promise<{ data?: z.infer<S>; error?: string; output?: string; retry_count?: number }> {
   const first = await runClaude({
     prompt: input.prompt,
     repo_path: input.repoPath,
-    command: input.command
+    worker: input.worker
   });
   const firstOutput = first.observations.join('\n');
   const firstParsed = parseJsonWithSchema(firstOutput, input.schema);
@@ -455,7 +455,7 @@ async function callClaudeJson<S extends z.ZodTypeAny>(input: {
   const retry = await runClaude({
     prompt: retryPrompt,
     repo_path: input.repoPath,
-    command: input.command
+    worker: input.worker
   });
   const retryOutput = retry.observations.join('\n');
   const retryParsed = parseJsonWithSchema(retryOutput, input.schema);
@@ -472,13 +472,13 @@ async function callClaudeJson<S extends z.ZodTypeAny>(input: {
 async function callCodexJson<S extends z.ZodTypeAny>(input: {
   prompt: string;
   repoPath: string;
-  command: string;
+  worker: WorkerConfig;
   schema: S;
 }): Promise<{ data?: z.infer<S>; error?: string; output?: string; retry_count?: number }> {
   const first = await runCodex({
     prompt: input.prompt,
     repo_path: input.repoPath,
-    command: input.command
+    worker: input.worker
   });
   const firstOutput = first.observations.join('\n');
   const firstParsed = parseJsonWithSchema(firstOutput, input.schema);
@@ -490,7 +490,7 @@ async function callCodexJson<S extends z.ZodTypeAny>(input: {
   const retry = await runCodex({
     prompt: retryPrompt,
     repo_path: input.repoPath,
-    command: input.command
+    worker: input.worker
   });
   const retryOutput = retry.observations.join('\n');
   const retryParsed = parseJsonWithSchema(retryOutput, input.schema);
