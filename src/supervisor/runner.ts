@@ -404,7 +404,7 @@ async function handleReview(state: RunState, options: SupervisorOptions): Promis
     payload: review
   });
 
-  if (review.status === 'request_changes') {
+  if (review.status === 'request_changes' || review.status === 'reject') {
     options.runStore.writeMemo(
       `milestone_${String(state.milestone_index + 1).padStart(2, '0')}_review.md`,
       review.changes.join('\n')

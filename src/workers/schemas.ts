@@ -14,8 +14,13 @@ export const planOutputSchema = z.object({
 });
 
 export const reviewOutputSchema = z.object({
-  status: z.enum(['approve', 'request_changes']),
-  changes: z.array(z.string()).default([])
+  status: z.enum(['approve', 'request_changes', 'reject']),
+  changes: z
+    .array(z.union([z.string(), z.object({}).passthrough()]))
+    .default([])
+    .transform((arr) =>
+      arr.map((item) => (typeof item === 'string' ? item : JSON.stringify(item)))
+    )
 });
 
 export const implementerOutputSchema = z.object({
