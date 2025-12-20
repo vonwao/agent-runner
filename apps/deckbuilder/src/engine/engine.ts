@@ -40,10 +40,27 @@ function drawCard(state: GameState): GameState {
   };
 }
 
+export function applyDamage<T extends { hp: number; block?: number }>(
+  target: T,
+  damage: number
+): T {
+  const block = target.block ?? 0;
+  const remainingDamage = Math.max(0, damage - block);
+  const nextBlock = Math.max(0, block - damage);
+  const nextHp = Math.max(0, target.hp - remainingDamage);
+
+  if (target.block === undefined) {
+    return { ...target, hp: nextHp };
+  }
+
+  return { ...target, hp: nextHp, block: nextBlock };
+}
+
 function playCard(state: GameState, card: Card): GameState {
   if (state.player.energy < card.cost) {
     return state;
   }
+  const nextEnemy = applyDamage(state.enemy, card.damage);
   return {
     ...state,
     player: {
@@ -52,21 +69,16 @@ function playCard(state: GameState, card: Card): GameState {
       hand: state.player.hand.filter((handCard) => handCard.id !== card.id),
       discard: [...state.player.discard, card]
     },
-    enemy: {
-      ...state.enemy,
-      hp: Math.max(0, state.enemy.hp - card.damage)
-    }
+    enemy: nextEnemy
   };
 }
 
 function enemyTurn(state: GameState): GameState {
   if (state.enemy.intent === 'attack') {
+    const nextPlayer = applyDamage(state.player, state.enemy.damage);
     return {
       ...state,
-      player: {
-        ...state.player,
-        hp: Math.max(0, state.player.hp - state.enemy.damage)
-      }
+      player: nextPlayer
     };
   }
   return state;
