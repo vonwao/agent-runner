@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { Event, RunState } from '../types/schemas.js';
+import { EnvFingerprint } from '../env/fingerprint.js';
 
 export class RunStore {
   private runDir: string;
@@ -62,6 +63,20 @@ export class RunStore {
   writeMemo(name: string, content: string): void {
     const target = path.join(this.runDir, 'handoffs', name);
     fs.writeFileSync(target, content);
+  }
+
+  writeFingerprint(fingerprint: EnvFingerprint): void {
+    const target = path.join(this.runDir, 'env.fingerprint.json');
+    fs.writeFileSync(target, JSON.stringify(fingerprint, null, 2));
+  }
+
+  readFingerprint(): EnvFingerprint | null {
+    const target = path.join(this.runDir, 'env.fingerprint.json');
+    if (!fs.existsSync(target)) {
+      return null;
+    }
+    const raw = fs.readFileSync(target, 'utf-8');
+    return JSON.parse(raw) as EnvFingerprint;
   }
 
   appendEvent(event: Omit<Event, 'seq' | 'timestamp'>): Event {

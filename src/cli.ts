@@ -25,6 +25,7 @@ program
   .option('--web', 'Allow web access for unblock', false)
   .option('--dry-run', 'Initialize run without executing', false)
   .option('--max-ticks <count>', 'Max supervisor ticks', '10')
+  .option('--skip-doctor', 'Skip worker health checks', false)
   .action(async (options) => {
     const noBranch = options.branch === false;
     const noWrite = options.write === false;
@@ -39,7 +40,8 @@ program
       dryRun: options.dryRun,
       noBranch,
       noWrite,
-      maxTicks: Number.parseInt(options.maxTicks, 10)
+      maxTicks: Number.parseInt(options.maxTicks, 10),
+      skipDoctor: options.skipDoctor
     });
   });
 
@@ -70,13 +72,15 @@ program
   .option('--max-ticks <count>', 'Max supervisor ticks', '10')
   .option('--allow-deps', 'Allow lockfile changes', false)
   .option('--config <path>', 'Path to agent.config.json')
+  .option('--force', 'Resume despite env fingerprint mismatch', false)
   .action(async (runId: string, options) => {
     await resumeCommand({
       runId,
       time: Number.parseInt(options.time, 10),
       maxTicks: Number.parseInt(options.maxTicks, 10),
       allowDeps: options.allowDeps,
-      config: options.config
+      config: options.config,
+      force: options.force
     });
   });
 

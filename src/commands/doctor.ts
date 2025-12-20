@@ -1,19 +1,26 @@
 import { execa } from 'execa';
 import path from 'node:path';
 import { loadConfig, resolveConfigPath } from '../config/load.js';
-import { WorkerConfig } from '../config/schema.js';
+import { WorkerConfig, AgentConfig } from '../config/schema.js';
 
 export interface DoctorOptions {
   config?: string;
   repo?: string;
 }
 
-interface WorkerCheck {
+export interface WorkerCheck {
   name: string;
   bin: string;
   version: string | null;
   headless: boolean;
   error: string | null;
+}
+
+export interface DoctorResult {
+  configPath: string;
+  repoPath: string;
+  checks: WorkerCheck[];
+  allPassed: boolean;
 }
 
 async function checkWorker(
@@ -81,6 +88,15 @@ async function checkWorker(
   return result;
 }
 
+export async function runDoctorChecks(config: AgentConfig, repoPath: string): Promise<WorkerCheck[]> {
+  const checks: WorkerCheck[] = [];
+  for (const [name, workerConfig] of Object.entries(config.workers)) {
+    const check = await checkWorker(name, workerConfig as WorkerConfig, repoPath);
+    checks.push(check);
+  }
+  return checks;
+}
+
 export async function doctorCommand(options: DoctorOptions): Promise<void> {
   const repoPath = path.resolve(options.repo || '.');
   const configPath = resolveConfigPath(repoPath, options.config);
@@ -99,20 +115,17 @@ export async function doctorCommand(options: DoctorOptions): Promise<void> {
     return;
   }
 
-  const workers = config.workers;
-  const checks: WorkerCheck[] = [];
+  const checks = await runDoctorChecks(config, repoPath);
 
   console.log('Workers\n-------');
 
-  for (const [name, workerConfig] of Object.entries(workers)) {
-    const check = await checkWorker(name, workerConfig, repoPath);
-    checks.push(check);
+  for (const check of checks) {
 
     const status = check.error ? 'FAIL' : 'PASS';
     const version = check.version || 'unknown';
     const headless = check.headless ? 'headless OK' : 'headless FAIL';
 
-    console.log(`${name}: ${status}`);
+    console.log(`${check.name}: ${status}`);
     console.log(`  bin: ${check.bin}`);
     console.log(`  version: ${version}`);
     console.log(`  ${headless}`);

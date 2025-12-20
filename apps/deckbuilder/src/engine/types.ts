@@ -7,6 +7,7 @@ export interface Card {
 
 export interface Player {
   hp: number;
+  block: number;
   energy: number;
   deck: Card[];
   hand: Card[];

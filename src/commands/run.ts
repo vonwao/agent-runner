@@ -7,6 +7,8 @@ import { buildMilestonesFromTask } from '../supervisor/planner.js';
 import { createInitialState, stopRun, updatePhase } from '../supervisor/state-machine.js';
 import { runPreflight } from './preflight.js';
 import { runSupervisorLoop } from '../supervisor/runner.js';
+import { runDoctorChecks, WorkerCheck } from './doctor.js';
+import { captureFingerprint } from '../env/fingerprint.js';
 
 export interface RunOptions {
   repo: string;
@@ -20,6 +22,7 @@ export interface RunOptions {
   noBranch: boolean;
   noWrite: boolean;
   maxTicks: number;
+  skipDoctor: boolean;
 }
 
 function makeRunId(): string {
@@ -84,6 +87,21 @@ export async function runCommand(options: RunOptions): Promise<void> {
   const config = loadConfig(configPath);
   const taskText = fs.readFileSync(taskPath, 'utf-8');
 
+  // Run doctor checks unless skipped
+  if (!options.skipDoctor) {
+    const doctorChecks = await runDoctorChecks(config, repoPath);
+    const failedChecks = doctorChecks.filter((c) => c.error);
+    if (failedChecks.length > 0) {
+      console.error('Doctor checks failed:');
+      for (const check of failedChecks) {
+        console.error(`  ${check.name}: ${check.error}`);
+      }
+      console.error('\nRun with --skip-doctor to bypass worker health checks.');
+      process.exitCode = 1;
+      return;
+    }
+  }
+
   const runId = makeRunId();
   const slug = slugFromTask(taskPath);
   const milestones = buildMilestonesFromTask(taskText);
@@ -105,6 +123,8 @@ export async function runCommand(options: RunOptions): Promise<void> {
   if (runStore) {
     runStore.writeConfigSnapshot(config);
     runStore.writeArtifact('task.md', taskText);
+    const fingerprint = await captureFingerprint(config, repoPath);
+    runStore.writeFingerprint(fingerprint);
     runStore.appendEvent({
       type: 'run_started',
       source: 'cli',
