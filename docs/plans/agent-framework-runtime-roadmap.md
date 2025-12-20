@@ -24,12 +24,26 @@ Align the roadmap around a “compiler + runtime” mindset: prioritize determin
 - Determinism check: identical seed + task yields identical test outcomes and same planned file paths.
 - Governance violations per run (target: 0).
 
+## KPI guardrail
+- Every KPI must directly inform a guardrail or scheduling decision; if it does not, do not collect it yet.
+
 ## Definition of done (Roadmap milestone)
 - Ambiguous bootstrap: 3 consecutive successful runs on main with no framework edits.
 - Parse failure rate < 1% across 200 worker calls.
 - Median milestone time and p90 set after baseline, then held under target for fixtures.
 - Zero framework edits during target runs (enforced).
 - Doctor detects worker contract drift and blocks run with actionable output.
+
+## Golden path definition
+- A task that requires no framework changes, uses standard project structure, has deterministic tests, and touches <= N files.
+- Golden tasks are the performance baseline and confidence anchor.
+- Hostile tasks exist to harden guarantees, not to optimize throughput.
+
+## Non-goals
+- Optimal code quality in all outputs.
+- Minimal token usage.
+- Zero retries.
+- Fully autonomous PRs.
 
 ## Scope
 - In: supervisor loop, verification policy, report summaries, worker adapters/parsers, prompts/schemas, run-store artifacts, docs, fixture tasks.
@@ -94,6 +108,13 @@ Align the roadmap around a “compiler + runtime” mindset: prioritize determin
 - Review skip always logs `review_skipped_reason` in the timeline.
 - Explore phase enforces no writes (temp worktree or write sandbox) and blocks git mutations.
 
+## Throughput strategy
+- Known dominant cost centers: LLM latency (planner + implementer), verification runtime, review loop retries.
+- Throughput gains must reduce round-trips, not just milliseconds.
+
+## Decisions
+- Explore default: ON for greenfield tasks, OFF for incremental changes.
+
 ## Action items
 [ ] Harden worker protocol: event-type tolerant JSONL parsing, canonical transcript, raw output capture, and doctor contract checks with actionable errors.
 [ ] Enforce governance in supervisor: never modify runner repo; if repo is shared, enforce allowed roots; define `framework_fix_needed` triggers (out-of-scope file, missing capability, protocol mismatch).
@@ -127,6 +148,5 @@ Align the roadmap around a “compiler + runtime” mindset: prioritize determin
 
 ## Open questions
 - What size/LOC thresholds define “small diff” for auto-approve and tier0_fast gating?
-- Should Explore be default for greenfield tasks or opt-in per task config?
 - Which tier0_fast commands are viable across typical target repos?
 - What baseline KPI targets should be set after initial data collection?
