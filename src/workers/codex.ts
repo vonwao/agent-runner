@@ -10,9 +10,9 @@ export interface WorkerRunInput {
 
 interface CodexEvent {
   type: string;
-  message?: {
-    role?: string;
-    content?: Array<{ type: string; text?: string }>;
+  item?: {
+    type: string;
+    text?: string;
   };
 }
 
@@ -23,15 +23,9 @@ function extractTextFromCodexJsonl(output: string): string {
   for (const line of lines) {
     try {
       const event = JSON.parse(line) as CodexEvent;
-      if (event.type === 'message' && event.message?.role === 'assistant') {
-        const content = event.message.content;
-        if (Array.isArray(content)) {
-          for (const block of content) {
-            if (block.type === 'text' && block.text) {
-              texts.push(block.text);
-            }
-          }
-        }
+      // Extract text from agent_message items (the actual assistant responses)
+      if (event.type === 'item.completed' && event.item?.type === 'agent_message' && event.item.text) {
+        texts.push(event.item.text);
       }
     } catch {
       // Skip malformed lines
