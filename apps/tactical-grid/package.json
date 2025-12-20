@@ -1,0 +1,11 @@
+{
+  "name": "tactical-grid",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node -e \"console.log('no tests configured')\"",
+    "typecheck": "tsc --noEmit",
+    "lint": "node -e \"console.log('no lint configured')\""
+  }
+}

@@ -68,10 +68,26 @@ export async function resumeCommand(options: ResumeOptions): Promise<void> {
     }
   }
 
+  // Determine the phase to resume from
+  let resumePhase = state.phase;
+  if (state.phase === 'STOPPED' && state.last_successful_phase) {
+    // Resume from the phase after the last successful one
+    const phaseOrder = ['INIT', 'PLAN', 'IMPLEMENT', 'VERIFY', 'REVIEW', 'CHECKPOINT'];
+    const lastIdx = phaseOrder.indexOf(state.last_successful_phase);
+    if (lastIdx >= 0 && lastIdx < phaseOrder.length - 1) {
+      resumePhase = phaseOrder[lastIdx + 1] as RunState['phase'];
+    } else {
+      resumePhase = state.last_successful_phase;
+    }
+  }
+
   const updated: RunState = {
     ...state,
+    phase: resumePhase,
     resume_token: options.runId,
-    updated_at: new Date().toISOString()
+    updated_at: new Date().toISOString(),
+    last_error: undefined,
+    stop_reason: undefined
   };
 
   runStore.writeState(updated);
