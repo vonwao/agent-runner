@@ -120,6 +120,8 @@ async function handlePlan(state: RunState, options: SupervisorOptions): Promise<
       source: 'claude',
       payload: {
         stage: 'plan',
+        parser_context: 'plan',
+        retry_count: parsed.retry_count ?? 0,
         error: parsed.error,
         output_snippet: snippet(parsed.output)
       }
@@ -174,6 +176,8 @@ async function handleImplement(state: RunState, options: SupervisorOptions): Pro
       source: 'codex',
       payload: {
         stage: 'implement',
+        parser_context: 'implement',
+        retry_count: parsed.retry_count ?? 0,
         error: parsed.error,
         output_snippet: snippet(parsed.output)
       }
@@ -331,6 +335,8 @@ async function handleReview(state: RunState, options: SupervisorOptions): Promis
       source: 'claude',
       payload: {
         stage: 'review',
+        parser_context: 'review',
+        retry_count: parsed.retry_count ?? 0,
         error: parsed.error,
         output_snippet: snippet(parsed.output)
       }
@@ -436,7 +442,7 @@ async function callClaudeJson<T>(input: {
   repoPath: string;
   command: string;
   schema: z.ZodSchema<T>;
-}): Promise<{ data?: T; error?: string; output?: string }> {
+}): Promise<{ data?: T; error?: string; output?: string; retry_count?: number }> {
   const first = await runClaude({
     prompt: input.prompt,
     repo_path: input.repoPath,
@@ -445,7 +451,7 @@ async function callClaudeJson<T>(input: {
   const firstOutput = first.observations.join('\n');
   const firstParsed = parseJsonWithSchema(firstOutput, input.schema);
   if (firstParsed.data) {
-    return { data: firstParsed.data, output: firstOutput };
+    return { data: firstParsed.data, output: firstOutput, retry_count: 0 };
   }
 
   const retryPrompt = `${input.prompt}\n\nOutput JSON only between BEGIN_JSON and END_JSON. No other text.`;
@@ -457,11 +463,12 @@ async function callClaudeJson<T>(input: {
   const retryOutput = retry.observations.join('\n');
   const retryParsed = parseJsonWithSchema(retryOutput, input.schema);
   if (retryParsed.data) {
-    return { data: retryParsed.data, output: retryOutput };
+    return { data: retryParsed.data, output: retryOutput, retry_count: 1 };
   }
   return {
     error: retryParsed.error ?? firstParsed.error ?? 'JSON parse failed',
-    output: retryOutput || firstOutput
+    output: retryOutput || firstOutput,
+    retry_count: 1
   };
 }
 
@@ -470,7 +477,7 @@ async function callCodexJson<T>(input: {
   repoPath: string;
   command: string;
   schema: z.ZodSchema<T>;
-}): Promise<{ data?: T; error?: string; output?: string }> {
+}): Promise<{ data?: T; error?: string; output?: string; retry_count?: number }> {
   const first = await runCodex({
     prompt: input.prompt,
     repo_path: input.repoPath,
@@ -479,7 +486,7 @@ async function callCodexJson<T>(input: {
   const firstOutput = first.observations.join('\n');
   const firstParsed = parseJsonWithSchema(firstOutput, input.schema);
   if (firstParsed.data) {
-    return { data: firstParsed.data, output: firstOutput };
+    return { data: firstParsed.data, output: firstOutput, retry_count: 0 };
   }
 
   const retryPrompt = `${input.prompt}\n\nOutput JSON only between BEGIN_JSON and END_JSON. No other text.`;
@@ -491,11 +498,12 @@ async function callCodexJson<T>(input: {
   const retryOutput = retry.observations.join('\n');
   const retryParsed = parseJsonWithSchema(retryOutput, input.schema);
   if (retryParsed.data) {
-    return { data: retryParsed.data, output: retryOutput };
+    return { data: retryParsed.data, output: retryOutput, retry_count: 1 };
   }
   return {
     error: retryParsed.error ?? firstParsed.error ?? 'JSON parse failed',
-    output: retryOutput || firstOutput
+    output: retryOutput || firstOutput,
+    retry_count: 1
   };
 }
 

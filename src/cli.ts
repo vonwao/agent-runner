@@ -89,8 +89,9 @@ program
 program
   .command('report')
   .argument('<runId>', 'Run ID')
-  .action(async (runId: string) => {
-    await reportCommand({ runId });
+  .option('--tail <count>', 'Tail last N events', '50')
+  .action(async (runId: string, options) => {
+    await reportCommand({ runId, tail: Number.parseInt(options.tail, 10) });
   });
 
 program.parseAsync();
