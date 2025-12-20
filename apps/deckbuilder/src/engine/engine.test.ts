@@ -28,4 +28,34 @@ describe('engine', () => {
     expect(floored.block).toBe(0);
     expect(floored.hp).toBe(0);
   });
+
+  it('reduces damage with block without dropping hp', () => {
+    const target = { hp: 12, block: 8 };
+    const reduced = applyDamage(target, 5);
+    expect(reduced.block).toBe(3);
+    expect(reduced.hp).toBe(12);
+  });
+
+  it('never allows block or hp to go negative', () => {
+    const target = { hp: 4, block: 2 };
+    const reduced = applyDamage(target, 10);
+    expect(reduced.block).toBe(0);
+    expect(reduced.hp).toBe(0);
+  });
+
+  it('end turn triggers a deterministic enemy attack', () => {
+    const state = createInitialState(1);
+    const withBlock = {
+      ...state,
+      player: {
+        ...state.player,
+        hp: 20,
+        block: 4
+      }
+    };
+    const after = step(withBlock, { type: 'end_turn' });
+    expect(after.player.hp).toBe(18);
+    expect(after.player.block).toBe(0);
+    expect(after.turn).toBe(withBlock.turn + 1);
+  });
 });
