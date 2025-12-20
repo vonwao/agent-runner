@@ -1,6 +1,6 @@
 {
   "agent": {
-    "name": "tactical-grid-ambiguous",
+    "name": "tactical-grid-ambiguous-fixture",
     "version": "1"
   },
   "repo": {
@@ -25,7 +25,7 @@
       },
       {
         "name": "engine",
-        "patterns": ["apps/tactical-grid-ambiguous/src/**"],
+        "patterns": ["apps/tactical-grid-ambiguous/src/engine/**"],
         "tier": "tier1"
       }
     ],

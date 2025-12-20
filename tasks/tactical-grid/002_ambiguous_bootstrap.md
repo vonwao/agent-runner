@@ -14,6 +14,7 @@ Create a turn-based skirmish game on a grid. The engine should support units wit
 - Movement is Manhattan distance, blocked by other units.
 - Attacks reduce HP; at 0 HP the unit is removed from play.
 - Include at least 6 passing Vitest tests covering move, attack, and determinism.
+- Use `vitest --run` in package.json scripts (not watch mode).
 
 ## Success criteria
 
