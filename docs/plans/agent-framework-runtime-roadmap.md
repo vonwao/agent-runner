@@ -24,6 +24,32 @@ Align the roadmap around a “compiler + runtime” mindset: prioritize determin
 - Determinism check: identical seed + task yields identical test outcomes and identical planned file paths (exact code diffs may vary, but must satisfy the same tests and structure).
 - Governance violations per run (target: 0).
 
+## KPI targets (v1)
+### Time
+- Median time per milestone: <= 3 minutes.
+- p90 time per milestone: <= 6 minutes.
+- End-to-end ambiguous bootstrap: <= 25 minutes.
+
+### Worker usage
+- Median worker calls per milestone: <= 2.
+- p90 worker calls per milestone: <= 4.
+
+### Verification
+- tier0 median: <= 30 seconds.
+- tier0 p90: <= 60 seconds.
+- tier1: allowed but must be < 2 minutes or skipped.
+- tier2: run-end only.
+
+### Reliability
+- Parse failure rate: < 1 per 100 calls.
+- Retry rate (any kind): < 20% of milestones.
+- Human intervention rate: 0 for golden paths.
+
+### Governance and determinism
+- Governance violations: 0.
+- Planned file path variance: 0.
+- Test outcome variance: 0.
+
 ## KPI guardrail
 - Every KPI must directly inform a guardrail or scheduling decision; if it does not, do not collect it yet.
 
@@ -130,6 +156,55 @@ Any run that requires a framework edit must stop with `framework_fix_needed`.
 ## Decisions
 - Explore default: ON for greenfield tasks, OFF for incremental changes.
 
+## 7-day execution plan
+### Day 1 - Worker contract hardening
+- Make Codex JSONL parsing fully event-type tolerant.
+- Persist canonical transcripts for every worker call.
+- Size-cap raw output artifacts.
+- Upgrade doctor to validate output format, marker presence, and contract version.
+- Exit: no parse failures on fixture runs.
+
+### Day 2 - Governance enforcement
+- Hard-block runner repo edits.
+- Enforce allowed roots when repo is shared.
+- Implement `framework_fix_needed` stop reason + memo.
+- Add tests for governance violations.
+- Exit: any framework-touching task stops cleanly.
+
+### Day 3 - KPI instrumentation
+- Add timing + counts to `state.json`.
+- Surface KPIs in `report`.
+- Capture worker time, verification time, retries, diff size, review skip reasons.
+- Exit: KPIs visible per run with no manual aggregation.
+
+### Day 4 - Ambiguous bootstrap validation
+- Run ambiguous bootstrap 3x on main.
+- No framework edits.
+- Record baseline metrics and confirm KPI targets.
+- Exit: repeatable success with locked targets.
+
+### Day 5 - Throughput wins (safe)
+- Implement `tier0_fast`.
+- Prompt trimming (goal + files_expected only).
+- Reduce review payload size.
+- Add reviewer auto-approve (strict guardrails).
+- Exit: measurable speedup with no reliability loss.
+
+### Day 6 - Explore phase
+- Implement read-only Explore.
+- Enforce no writes (sandbox or temp worktree).
+- Surface assumptions + inferred structure.
+- Default ON for greenfield tasks.
+- Exit: cleaner plans and fewer retries.
+
+### Day 7 - Regression + polish
+- Formal golden/hostile suite.
+- Regression rubric enforcement.
+- Docs alignment.
+- Branch cleanup.
+- Cut a runtime v0.1 tag.
+- Exit: stable, explainable, shippable system.
+
 ## Action items
 [ ] Harden worker protocol: event-type tolerant JSONL parsing, canonical transcript, raw output capture, and doctor contract checks with actionable errors.
 [ ] Enforce governance in supervisor: never modify runner repo; if repo is shared, enforce allowed roots; define `framework_fix_needed` triggers (out-of-scope file, missing capability, protocol mismatch).
@@ -164,7 +239,6 @@ Any run that requires a framework edit must stop with `framework_fix_needed`.
 ## Open questions
 - What size/LOC thresholds define “small diff” for auto-approve and tier0_fast gating?
 - Which tier0_fast commands are viable across typical target repos?
-- What baseline KPI targets should be set after initial data collection?
 
 ## Roadmap exit criteria
 When P1 is complete and KPIs are stable for golden paths, further work should be driven by product needs rather than framework completeness.
