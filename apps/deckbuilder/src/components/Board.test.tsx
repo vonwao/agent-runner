@@ -2,7 +2,8 @@ import { describe, expect, it } from 'vitest';
 import { renderToString } from 'react-dom/server';
 import { Board } from './Board';
 import { Card } from './Card';
-import type { Player, Enemy, Card as CardData } from '../engine/types';
+import type { Player, Enemy, Card as CardData, Action } from '../engine/types';
+import { createInitialState, step } from '../engine/engine';
 
 function createTestPlayer(overrides: Partial<Player> = {}): Player {
   return {
@@ -369,6 +370,90 @@ describe('Board', () => {
       const playerAfter = createTestPlayer({ block: 5 });
       const htmlAfter = renderToString(<Board player={playerAfter} enemy={enemy} />);
       expect(htmlAfter).toContain('>5<');
+    });
+  });
+
+  describe('Determinism', () => {
+    it('produces identical visual state from same seed and actions', () => {
+      const seed = 12345;
+      const actions: Action[] = [
+        { type: 'draw' },
+        { type: 'draw' },
+        { type: 'draw' },
+      ];
+
+      // Create first game state and apply actions
+      let state1 = createInitialState(seed);
+      for (const action of actions) {
+        state1 = step(state1, action);
+      }
+
+      // Create second game state from same seed and apply same actions
+      let state2 = createInitialState(seed);
+      for (const action of actions) {
+        state2 = step(state2, action);
+      }
+
+      // Render both states
+      const html1 = renderToString(<Board player={state1.player} enemy={state1.enemy} />);
+      const html2 = renderToString(<Board player={state2.player} enemy={state2.enemy} />);
+
+      // Both renders should be identical
+      expect(html1).toBe(html2);
+    });
+
+    it('produces identical visual state after multiple turns with same seed', () => {
+      const seed = 99999;
+
+      // Helper to run a full game sequence
+      function runGameSequence(initialSeed: number) {
+        let state = createInitialState(initialSeed);
+        // Draw 3 cards
+        state = step(state, { type: 'draw' });
+        state = step(state, { type: 'draw' });
+        state = step(state, { type: 'draw' });
+        // Play the first card in hand (if exists)
+        if (state.player.hand.length > 0) {
+          state = step(state, { type: 'play_card', cardId: state.player.hand[0].id });
+        }
+        // End turn
+        state = step(state, { type: 'end_turn' });
+        // Start next turn - draw cards
+        state = step(state, { type: 'draw' });
+        state = step(state, { type: 'draw' });
+        return state;
+      }
+
+      const state1 = runGameSequence(seed);
+      const state2 = runGameSequence(seed);
+
+      const html1 = renderToString(<Board player={state1.player} enemy={state1.enemy} />);
+      const html2 = renderToString(<Board player={state2.player} enemy={state2.enemy} />);
+
+      expect(html1).toBe(html2);
+    });
+
+    it('produces different visual states from different seeds', () => {
+      const actions: Action[] = [
+        { type: 'draw' },
+        { type: 'draw' },
+        { type: 'draw' },
+      ];
+
+      // Create game states with different seeds
+      let state1 = createInitialState(11111);
+      let state2 = createInitialState(22222);
+
+      for (const action of actions) {
+        state1 = step(state1, action);
+        state2 = step(state2, action);
+      }
+
+      const html1 = renderToString(<Board player={state1.player} enemy={state1.enemy} />);
+      const html2 = renderToString(<Board player={state2.player} enemy={state2.enemy} />);
+
+      // Different seeds should produce different hand orderings (thus different HTML)
+      expect(html1).not.toBe(html2);
     });
   });
 });
