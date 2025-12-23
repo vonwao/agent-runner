@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import type { ChangeEvent } from 'react';
 import { getNextAction } from './ai/ai';
 import { AutoPlayControls } from './components/AutoPlayControls';
+import { Board } from './components/Board';
 import { createInitialState, step, Action } from './engine/engine';
 import { ReplayControls } from './components/ReplayControls';
 import { usePersistence } from './hooks/usePersistence';
@@ -249,37 +250,12 @@ export default function App() {
         onReplay={startReplay}
         onStop={stopReplay}
       />
-      <section style={{ marginBottom: 16 }}>
-        <h2>Player</h2>
-        <p>HP: {state.player.hp}</p>
-        <p>Energy: {state.player.energy}</p>
-      </section>
-      <section style={{ marginBottom: 16 }}>
-        <h2>Enemy</h2>
-        <p>HP: {state.enemy.hp}</p>
-        <p>Intent: {state.enemy.intent}</p>
-      </section>
-      <section style={{ marginBottom: 16 }}>
-        <h2>Hand</h2>
-        {state.player.hand.length === 0 ? (
-          <p>(empty)</p>
-        ) : (
-          <ul>
-            {state.player.hand.map((card) => (
-              <li key={card.id}>
-                {card.name} (cost {card.cost}, dmg {card.damage}){' '}
-                <button
-                  type="button"
-                  disabled={isAutoPlaying || isReplaying}
-                  onClick={() => dispatch({ type: 'play_card', cardId: card.id })}
-                >
-                  Play
-                </button>
-              </li>
-            ))}
-          </ul>
-        )}
-      </section>
+      <Board
+        player={state.player}
+        enemy={state.enemy}
+        onPlayCard={(cardId) => dispatch({ type: 'play_card', cardId })}
+        disableActions={isAutoPlaying || isReplaying}
+      />
       <section style={{ display: 'flex', gap: 24, alignItems: 'flex-start' }}>
         <div style={{ display: 'flex', gap: 12 }}>
           <button
