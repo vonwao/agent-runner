@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { getNextAction } from './ai/ai';
 import { AutoPlayControls } from './components/AutoPlayControls';
 import { createInitialState, step, Action } from './engine/engine';
@@ -8,6 +8,8 @@ export default function App() {
   const [state, setState] = useState(() => createInitialState(1));
   const [isAutoPlaying, setIsAutoPlaying] = useState(false);
   const [actionLog, setActionLog] = useState<string[]>([]);
+  const [autoPlaySpeed, setAutoPlaySpeed] = useState(300);
+  const autoPlayStopRef = useRef(false);
 
   const dispatch = (action: Action) => {
     setState((current) => step(current, action));
@@ -40,30 +42,45 @@ export default function App() {
     });
   };
 
-  const autoPlayTurn = async () => {
+  const autoPlayGame = async () => {
     if (isAutoPlaying) {
+      return;
+    }
+    if (state.player.hp <= 0 || state.enemy.hp <= 0) {
       return;
     }
     setIsAutoPlaying(true);
     setActionLog([]);
+    autoPlayStopRef.current = false;
     let currentState = state;
     try {
       while (true) {
+        if (
+          autoPlayStopRef.current ||
+          currentState.player.hp <= 0 ||
+          currentState.enemy.hp <= 0
+        ) {
+          break;
+        }
         const nextAction = getNextAction(currentState);
         const action = nextAction ?? { type: 'end_turn' as const };
         pushActionLog(describeAction(action, currentState));
         const nextState = step(currentState, action);
         currentState = nextState;
         setState(nextState);
-        if (action.type === 'end_turn') {
-          break;
-        }
-        await new Promise((resolve) => setTimeout(resolve, 300));
+        await new Promise((resolve) => setTimeout(resolve, autoPlaySpeed));
       }
     } finally {
+      autoPlayStopRef.current = false;
       setIsAutoPlaying(false);
     }
   };
+
+  const stopAutoPlay = () => {
+    autoPlayStopRef.current = true;
+  };
+
+  const isGameOver = state.player.hp <= 0 || state.enemy.hp <= 0;
 
   return (
     <main style={{ fontFamily: 'sans-serif', padding: 24 }}>
@@ -119,7 +136,12 @@ export default function App() {
         <AutoPlayControls
           isAutoPlaying={isAutoPlaying}
           actionLog={actionLog}
-          onAutoPlayTurn={autoPlayTurn}
+          autoPlaySpeed={autoPlaySpeed}
+          turn={state.turn}
+          isGameOver={isGameOver}
+          onAutoPlayGame={autoPlayGame}
+          onStopAutoPlay={stopAutoPlay}
+          onSpeedChange={setAutoPlaySpeed}
         />
       </section>
     </main>
