@@ -1,11 +1,45 @@
+import { CSSProperties } from 'react';
+import { HealthBar } from './HealthBar';
+import { EnergyBar } from './EnergyBar';
+
 interface PlayerStatsProps {
   hp: number;
+  maxHp?: number;
   energy: number;
+  maxEnergy?: number;
   block: number;
   label?: string;
 }
 
-export function PlayerStats({ hp, energy, block, label = 'Player' }: PlayerStatsProps) {
+export function PlayerStats({
+  hp,
+  maxHp = 40,
+  energy,
+  maxEnergy = 3,
+  block,
+  label = 'Player'
+}: PlayerStatsProps) {
+  const blockStyle: CSSProperties = {
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    padding: '8px 16px',
+    borderRadius: 10,
+    background: 'rgba(71, 85, 105, 0.4)',
+    border: '1px solid rgba(148, 163, 184, 0.3)'
+  };
+
+  const shieldIconStyle: CSSProperties = {
+    width: 20,
+    height: 24,
+    background: 'linear-gradient(135deg, #94a3b8 0%, #64748b 100%)',
+    clipPath: 'polygon(50% 0%, 100% 25%, 100% 75%, 50% 100%, 0% 75%, 0% 25%)',
+    boxShadow: block > 0 ? '0 0 8px rgba(148, 163, 184, 0.5)' : 'none',
+    opacity: block > 0 ? 1 : 0.4,
+    transition: 'opacity 200ms ease-out, box-shadow 200ms ease-out'
+  };
+
   return (
     <section
       style={{
@@ -30,48 +64,52 @@ export function PlayerStats({ hp, energy, block, label = 'Player' }: PlayerStats
       >
         {label}
       </div>
-      <div
-        style={{
-          display: 'grid',
-          gridTemplateColumns: 'repeat(3, minmax(0, 1fr))',
-          gap: 10
-        }}
-      >
+
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+        {/* Health Bar */}
         <div
           style={{
-            textAlign: 'center',
-            padding: '10px 8px',
+            padding: '10px 12px',
             borderRadius: 10,
             background: 'rgba(127, 29, 29, 0.4)',
             border: '1px solid rgba(239, 68, 68, 0.3)'
           }}
         >
-          <div style={{ fontSize: 10, textTransform: 'uppercase', color: '#fca5a5' }}>HP</div>
-          <div style={{ fontSize: 22, fontWeight: 700, color: '#fef2f2' }}>{hp}</div>
+          <HealthBar current={hp} max={maxHp} size="medium" />
         </div>
+
+        {/* Energy and Block row */}
         <div
           style={{
-            textAlign: 'center',
-            padding: '10px 8px',
-            borderRadius: 10,
-            background: 'rgba(14, 116, 144, 0.3)',
-            border: '1px solid rgba(34, 211, 238, 0.3)'
+            display: 'grid',
+            gridTemplateColumns: '1fr auto',
+            gap: 10
           }}
         >
-          <div style={{ fontSize: 10, textTransform: 'uppercase', color: '#67e8f9' }}>Energy</div>
-          <div style={{ fontSize: 22, fontWeight: 700, color: '#ecfeff' }}>{energy}</div>
-        </div>
-        <div
-          style={{
-            textAlign: 'center',
-            padding: '10px 8px',
-            borderRadius: 10,
-            background: 'rgba(71, 85, 105, 0.4)',
-            border: '1px solid rgba(148, 163, 184, 0.3)'
-          }}
-        >
-          <div style={{ fontSize: 10, textTransform: 'uppercase', color: '#cbd5e1' }}>Block</div>
-          <div style={{ fontSize: 22, fontWeight: 700, color: '#f1f5f9' }}>{block}</div>
+          {/* Energy Pips */}
+          <div
+            style={{
+              padding: '10px 12px',
+              borderRadius: 10,
+              background: 'rgba(14, 116, 144, 0.3)',
+              border: '1px solid rgba(34, 211, 238, 0.3)'
+            }}
+          >
+            <EnergyBar current={energy} max={maxEnergy} />
+          </div>
+
+          {/* Block Display */}
+          <div style={blockStyle}>
+            <div style={shieldIconStyle} />
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+              <span
+                style={{ fontSize: 9, textTransform: 'uppercase', color: '#cbd5e1', letterSpacing: 1 }}
+              >
+                Block
+              </span>
+              <span style={{ fontSize: 20, fontWeight: 700, color: '#f1f5f9' }}>{block}</span>
+            </div>
+          </div>
         </div>
       </div>
     </section>

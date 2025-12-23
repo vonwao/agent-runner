@@ -1,11 +1,14 @@
 import type { CSSProperties } from 'react';
 import type { Enemy, Player } from '../engine/types';
 import { Card } from './Card';
+import { HealthBar } from './HealthBar';
 import { PlayerStats } from './PlayerStats';
 
 interface BoardProps {
   player: Player;
   enemy: Enemy;
+  maxPlayerHp?: number;
+  maxEnemyHp?: number;
   onPlayCard?: (cardId: string) => void;
   disableActions?: boolean;
 }
@@ -81,7 +84,14 @@ function CardStack({
   );
 }
 
-export function Board({ player, enemy, onPlayCard, disableActions = false }: BoardProps) {
+export function Board({
+  player,
+  enemy,
+  maxPlayerHp = 40,
+  maxEnemyHp = 30,
+  onPlayCard,
+  disableActions = false
+}: BoardProps) {
   const handCount = player.hand.length;
 
   const getCardTransform = (index: number, total: number): CSSProperties => {
@@ -151,17 +161,14 @@ export function Board({ player, enemy, onPlayCard, disableActions = false }: Boa
         >
           <div
             style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: 8,
-              padding: '8px 16px',
+              padding: '12px 16px',
               background: 'rgba(127, 29, 29, 0.6)',
               borderRadius: 12,
-              border: '1px solid #dc2626'
+              border: '1px solid #dc2626',
+              minWidth: 180
             }}
           >
-            <span style={{ fontSize: 12, color: '#fca5a5', textTransform: 'uppercase' }}>HP</span>
-            <span style={{ fontSize: 28, fontWeight: 700, color: '#fef2f2' }}>{enemy.hp}</span>
+            <HealthBar current={enemy.hp} max={maxEnemyHp} size="medium" />
           </div>
           <div
             style={{
@@ -250,7 +257,7 @@ export function Board({ player, enemy, onPlayCard, disableActions = false }: Boa
         <CardStack count={player.deck.length} label="Deck" variant="deck" />
 
         {/* Player Stats */}
-        <PlayerStats hp={player.hp} energy={player.energy} block={player.block} />
+        <PlayerStats hp={player.hp} maxHp={maxPlayerHp} energy={player.energy} block={player.block} />
 
         {/* Discard Pile */}
         <CardStack count={player.discard.length} label="Discard" variant="discard" />
