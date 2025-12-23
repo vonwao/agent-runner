@@ -49,6 +49,23 @@ export default function App() {
           End Turn
         </button>
       </section>
+      <section style={{ marginTop: 16 }}>
+        <h2>Action Log</h2>
+        <p>Total actions: {state.actionLog.length}</p>
+        {state.actionLog.length === 0 ? (
+          <p>(no actions yet)</p>
+        ) : (
+          <ol>
+            {state.actionLog.map((action, index) => (
+              <li key={`${action.type}-${index}`}>
+                {action.type === 'play_card'
+                  ? `play_card (${action.cardId})`
+                  : action.type}
+              </li>
+            ))}
+          </ol>
+        )}
+      </section>
     </main>
   );
 }
