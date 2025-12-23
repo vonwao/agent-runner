@@ -6,6 +6,11 @@
   "repo": {
     "default_branch": "main"
   },
+  "phases": {
+    "plan": "claude",
+    "implement": "claude",
+    "review": "claude"
+  },
   "scope": {
     "allowlist": [
       "apps/deckbuilder/src/**",
