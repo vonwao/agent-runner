@@ -217,7 +217,7 @@ export async function runCommand(options: RunOptions): Promise<void> {
     await ensureRunBranch(
       preflight.repo_context.git_root,
       preflight.repo_context.run_branch,
-      preflight.repo_context.default_branch
+      preflight.repo_context.current_branch
     );
   }
 
