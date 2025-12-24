@@ -2,7 +2,8 @@ import { Command } from 'commander';
 import { runCommand } from './commands/run.js';
 import { resumeCommand } from './commands/resume.js';
 import { statusCommand } from './commands/status.js';
-import { reportCommand } from './commands/report.js';
+import { reportCommand, findLatestRunId } from './commands/report.js';
+import { compareCommand } from './commands/compare.js';
 import { guardsOnlyCommand } from './commands/guards-only.js';
 import { doctorCommand } from './commands/doctor.js';
 
@@ -93,10 +94,33 @@ program
 
 program
   .command('report')
-  .argument('<runId>', 'Run ID')
+  .argument('<runId>', 'Run ID (or "latest")')
   .option('--tail <count>', 'Tail last N events', '50')
+  .option('--kpi-only', 'Show compact KPI summary only')
   .action(async (runId: string, options) => {
-    await reportCommand({ runId, tail: Number.parseInt(options.tail, 10) });
+    let resolvedRunId = runId;
+    if (runId === 'latest') {
+      const latest = findLatestRunId();
+      if (!latest) {
+        console.error('No runs found');
+        process.exit(1);
+      }
+      resolvedRunId = latest;
+    }
+    await reportCommand({
+      runId: resolvedRunId,
+      tail: Number.parseInt(options.tail, 10),
+      kpiOnly: options.kpiOnly
+    });
+  });
+
+program
+  .command('compare')
+  .description('Compare KPIs between two runs')
+  .argument('<runA>', 'First run ID')
+  .argument('<runB>', 'Second run ID')
+  .action(async (runA: string, runB: string) => {
+    await compareCommand({ runA, runB });
   });
 
 program

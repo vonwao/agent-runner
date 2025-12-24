@@ -9,6 +9,20 @@ export interface ReportOptions {
   kpiOnly?: boolean;
 }
 
+export function findLatestRunId(): string | null {
+  const runsDir = path.resolve('runs');
+  if (!fs.existsSync(runsDir)) {
+    return null;
+  }
+  const entries = fs
+    .readdirSync(runsDir, { withFileTypes: true })
+    .filter((e) => e.isDirectory() && /^\d{14}$/.test(e.name))
+    .map((e) => e.name)
+    .sort()
+    .reverse();
+  return entries[0] ?? null;
+}
+
 // KPI types - exported for testing (Phase 1: no boot chain touches)
 export interface PhaseKpi {
   duration_ms: number;
@@ -174,9 +188,9 @@ function formatKpiBlock(kpi: DerivedKpi): string {
     unattributedStr = 'unknown';
   } else if (kpi.unattributed_ms < 0) {
     // Negative = phases exceed tracked time (e.g., resumed runs with gaps)
-    unattributedStr = `-${formatDuration(Math.abs(kpi.unattributed_ms))}`;
+    unattributedStr = `-${formatPositiveDuration(Math.abs(kpi.unattributed_ms))} (resume/gap)`;
   } else {
-    unattributedStr = formatDuration(kpi.unattributed_ms);
+    unattributedStr = formatPositiveDuration(kpi.unattributed_ms);
   }
   lines.push(`total_duration: ${durationStr} (unattributed: ${unattributedStr})`);
 
