@@ -8,9 +8,38 @@ export interface ReportOptions {
   tail: number;
 }
 
+// KPI types - local to report.ts (Phase 1: no boot chain touches)
+interface PhaseKpi {
+  duration_ms: number;
+  count: number;
+}
+
+interface DerivedKpi {
+  version: 1;
+  total_duration_ms: number | null;
+  started_at: string | null;
+  ended_at: string | null;
+  phases: Record<string, PhaseKpi>;
+  workers: {
+    claude: number | 'unknown';
+    codex: number | 'unknown';
+  };
+  verify: {
+    attempts: number;
+    retries: number;
+    total_duration_ms: number;
+  };
+  milestones: {
+    completed: number;
+  };
+  outcome: 'complete' | 'stopped' | 'running' | 'unknown';
+  stop_reason: string | null;
+}
+
 interface TimelineScanResult {
   runStarted?: Record<string, unknown>;
   tailEvents: Array<Record<string, unknown>>;
+  kpi: DerivedKpi;
 }
 
 export async function reportCommand(options: ReportOptions): Promise<void> {
@@ -26,9 +55,21 @@ export async function reportCommand(options: ReportOptions): Promise<void> {
   const state = JSON.parse(fs.readFileSync(statePath, 'utf-8')) as RunState;
 
   const timelinePath = path.join(runDir, 'timeline.jsonl');
+  const defaultKpi: DerivedKpi = {
+    version: 1,
+    total_duration_ms: null,
+    started_at: null,
+    ended_at: null,
+    phases: {},
+    workers: { claude: 'unknown', codex: 'unknown' },
+    verify: { attempts: 0, retries: 0, total_duration_ms: 0 },
+    milestones: { completed: 0 },
+    outcome: 'unknown',
+    stop_reason: null
+  };
   const scan = fs.existsSync(timelinePath)
     ? await scanTimeline(timelinePath, options.tail)
-    : { tailEvents: [] };
+    : { tailEvents: [], kpi: defaultKpi };
 
   const flags = readFlags(scan.runStarted);
   const header = [
@@ -46,6 +87,7 @@ export async function reportCommand(options: ReportOptions): Promise<void> {
     `allow_deps: ${flags.allow_deps ?? 'unknown'}`
   ].join('\n');
 
+  const kpiBlock = formatKpiBlock(scan.kpi);
   const events = formatEvents(scan.tailEvents);
   const pointers = formatPointers({
     statePath,
@@ -54,7 +96,7 @@ export async function reportCommand(options: ReportOptions): Promise<void> {
     checkpoint: state.checkpoint_commit_sha
   });
 
-  console.log([header, '', 'Last events', events, '', 'Pointers', pointers].join('\n'));
+  console.log([header, '', 'KPIs', kpiBlock, '', 'Last events', events, '', 'Pointers', pointers].join('\n'));
 }
 
 function missingRunMessage(runDir: string): string {
@@ -91,12 +133,100 @@ function readFlags(runStarted?: Record<string, unknown>): {
   };
 }
 
+function formatKpiBlock(kpi: DerivedKpi): string {
+  const lines: string[] = [];
+
+  // Total duration
+  const durationStr =
+    kpi.total_duration_ms !== null ? formatDuration(kpi.total_duration_ms) : 'unknown';
+  lines.push(`total_duration: ${durationStr}`);
+
+  // Outcome
+  const outcomeStr = kpi.stop_reason
+    ? `${kpi.outcome} (${kpi.stop_reason})`
+    : kpi.outcome;
+  lines.push(`outcome: ${outcomeStr}`);
+
+  // Milestones
+  lines.push(`milestones_completed: ${kpi.milestones.completed}`);
+
+  // Worker calls
+  const claudeCalls = kpi.workers.claude;
+  const codexCalls = kpi.workers.codex;
+  lines.push(`worker_calls: claude=${claudeCalls} codex=${codexCalls}`);
+
+  // Phase durations (sorted by typical order: plan, implement, review, verify)
+  const phaseOrder = ['plan', 'implement', 'review', 'verify'];
+  const phaseEntries = Object.entries(kpi.phases);
+  if (phaseEntries.length > 0) {
+    const sortedPhases = phaseEntries.sort(([a], [b]) => {
+      const aIdx = phaseOrder.indexOf(a);
+      const bIdx = phaseOrder.indexOf(b);
+      if (aIdx === -1 && bIdx === -1) return a.localeCompare(b);
+      if (aIdx === -1) return 1;
+      if (bIdx === -1) return -1;
+      return aIdx - bIdx;
+    });
+    const phaseParts = sortedPhases.map(
+      ([phase, data]) => `${phase}=${formatDuration(data.duration_ms)}(x${data.count})`
+    );
+    lines.push(`phases: ${phaseParts.join(' ')}`);
+  } else {
+    lines.push('phases: (no phase data)');
+  }
+
+  // Verification stats
+  if (kpi.verify.attempts > 0) {
+    const verifyDur = formatDuration(kpi.verify.total_duration_ms);
+    lines.push(
+      `verify: attempts=${kpi.verify.attempts} retries=${kpi.verify.retries} duration=${verifyDur}`
+    );
+  } else {
+    lines.push('verify: (no verification data)');
+  }
+
+  return lines.join('\n');
+}
+
+function formatDuration(ms: number): string {
+  if (ms < 1000) {
+    return `${ms}ms`;
+  }
+  const seconds = Math.floor(ms / 1000);
+  if (seconds < 60) {
+    return `${seconds}s`;
+  }
+  const minutes = Math.floor(seconds / 60);
+  const remainingSeconds = seconds % 60;
+  if (minutes < 60) {
+    return remainingSeconds > 0 ? `${minutes}m${remainingSeconds}s` : `${minutes}m`;
+  }
+  const hours = Math.floor(minutes / 60);
+  const remainingMinutes = minutes % 60;
+  return remainingMinutes > 0 ? `${hours}h${remainingMinutes}m` : `${hours}h`;
+}
+
 async function scanTimeline(
   timelinePath: string,
   tailCount: number
 ): Promise<TimelineScanResult> {
   const tailEvents: Array<Record<string, unknown>> = [];
   let runStarted: Record<string, unknown> | undefined;
+
+  // KPI accumulators
+  let startedAt: string | null = null;
+  let endedAt: string | null = null;
+  const phases: Record<string, PhaseKpi> = {};
+  let currentPhase: string | null = null;
+  let currentPhaseStart: number | null = null;
+  let workersClaude: number | 'unknown' = 'unknown';
+  let workersCodex: number | 'unknown' = 'unknown';
+  let verifyAttempts = 0;
+  let verifyRetries = 0;
+  let verifyDurationMs = 0;
+  let milestonesCompleted = 0;
+  let outcome: DerivedKpi['outcome'] = 'unknown';
+  let stopReason: string | null = null;
 
   const stream = fs.createReadStream(timelinePath, { encoding: 'utf-8' });
   const rl = readline.createInterface({ input: stream, crlfDelay: Infinity });
@@ -108,9 +238,100 @@ async function scanTimeline(
     }
     try {
       const event = JSON.parse(trimmed) as Record<string, unknown>;
-      if (!runStarted && event.type === 'run_started') {
+      const eventType = event.type as string | undefined;
+      const timestamp = event.timestamp as string | undefined;
+      const payload =
+        event.payload && typeof event.payload === 'object'
+          ? (event.payload as Record<string, unknown>)
+          : {};
+
+      // Track run_started
+      if (!runStarted && eventType === 'run_started') {
         runStarted = event;
+        startedAt = timestamp ?? null;
+        outcome = 'running';
       }
+
+      // Track phase_start events for phase durations
+      if (eventType === 'phase_start' && payload.phase) {
+        // Close previous phase if any
+        if (currentPhase && currentPhaseStart !== null && timestamp) {
+          const phaseEnd = new Date(timestamp).getTime();
+          const phaseDuration = phaseEnd - currentPhaseStart;
+          if (!phases[currentPhase]) {
+            phases[currentPhase] = { duration_ms: 0, count: 0 };
+          }
+          phases[currentPhase].duration_ms += phaseDuration;
+        }
+        // Start new phase
+        currentPhase = payload.phase as string;
+        currentPhaseStart = timestamp ? new Date(timestamp).getTime() : null;
+        if (!phases[currentPhase]) {
+          phases[currentPhase] = { duration_ms: 0, count: 0 };
+        }
+        phases[currentPhase].count += 1;
+      }
+
+      // Track worker_stats event (emitted at finalize)
+      if (eventType === 'worker_stats' && payload.stats) {
+        const stats = payload.stats as Record<string, unknown>;
+        if (typeof stats.claude === 'number') {
+          workersClaude = stats.claude;
+        }
+        if (typeof stats.codex === 'number') {
+          workersCodex = stats.codex;
+        }
+      }
+
+      // Track verification events
+      if (eventType === 'verification') {
+        verifyAttempts += 1;
+        if (payload.duration_ms && typeof payload.duration_ms === 'number') {
+          verifyDurationMs += payload.duration_ms;
+        }
+      }
+
+      // Track verify retries (retry_count in verification payload)
+      if (eventType === 'verification' && typeof payload.retry === 'number') {
+        verifyRetries += payload.retry;
+      }
+
+      // Track milestone completion
+      if (eventType === 'milestone_complete') {
+        milestonesCompleted += 1;
+      }
+
+      // Track stop event
+      if (eventType === 'stop') {
+        endedAt = timestamp ?? null;
+        outcome = 'stopped';
+        stopReason = (payload.reason as string) ?? null;
+        // Close current phase
+        if (currentPhase && currentPhaseStart !== null && timestamp) {
+          const phaseEnd = new Date(timestamp).getTime();
+          const phaseDuration = phaseEnd - currentPhaseStart;
+          if (!phases[currentPhase]) {
+            phases[currentPhase] = { duration_ms: 0, count: 0 };
+          }
+          phases[currentPhase].duration_ms += phaseDuration;
+        }
+      }
+
+      // Track run_complete event
+      if (eventType === 'run_complete') {
+        endedAt = timestamp ?? null;
+        outcome = 'complete';
+        // Close current phase
+        if (currentPhase && currentPhaseStart !== null && timestamp) {
+          const phaseEnd = new Date(timestamp).getTime();
+          const phaseDuration = phaseEnd - currentPhaseStart;
+          if (!phases[currentPhase]) {
+            phases[currentPhase] = { duration_ms: 0, count: 0 };
+          }
+          phases[currentPhase].duration_ms += phaseDuration;
+        }
+      }
+
       tailEvents.push(event);
       if (tailEvents.length > tailCount) {
         tailEvents.shift();
@@ -120,7 +341,35 @@ async function scanTimeline(
     }
   }
 
-  return { runStarted, tailEvents };
+  // Compute total duration
+  let totalDurationMs: number | null = null;
+  if (startedAt && endedAt) {
+    totalDurationMs = new Date(endedAt).getTime() - new Date(startedAt).getTime();
+  }
+
+  const kpi: DerivedKpi = {
+    version: 1,
+    total_duration_ms: totalDurationMs,
+    started_at: startedAt,
+    ended_at: endedAt,
+    phases,
+    workers: {
+      claude: workersClaude,
+      codex: workersCodex
+    },
+    verify: {
+      attempts: verifyAttempts,
+      retries: verifyRetries,
+      total_duration_ms: verifyDurationMs
+    },
+    milestones: {
+      completed: milestonesCompleted
+    },
+    outcome,
+    stop_reason: stopReason
+  };
+
+  return { runStarted, tailEvents, kpi };
 }
 
 function formatEvents(events: Array<Record<string, unknown>>): string {
