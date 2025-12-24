@@ -208,7 +208,11 @@ export default function App() {
     <main
       style={{
         fontFamily: 'system-ui, -apple-system, sans-serif',
-        minHeight: '100vh',
+        height: '100vh',
+        maxHeight: '100vh',
+        overflow: 'hidden',
+        display: 'flex',
+        flexDirection: 'column',
         background: 'linear-gradient(135deg, #0c0a1d 0%, #1a1333 50%, #0f0d1a 100%)',
         color: '#e2e8f0'
       }}
@@ -276,7 +280,7 @@ export default function App() {
           style={{ display: 'none' }}
         />
       </header>
-      <div style={{ padding: 24, position: 'relative' }}>
+      <div style={{ flex: 1, padding: '16px 24px', position: 'relative', overflow: 'hidden' }}>
       {importError ? (
         <p style={{ color: '#fca5a5', marginBottom: 16 }} role="alert">
           {importError}

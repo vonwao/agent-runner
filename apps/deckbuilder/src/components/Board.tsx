@@ -215,11 +215,12 @@ export function Board({
       style={{
         display: 'flex',
         flexDirection: 'column',
-        gap: 8,
+        gap: 6,
         width: 'min(100%, 1000px)',
-        maxHeight: 500,
+        maxHeight: 480,
+        height: '100%',
         margin: '0 auto',
-        padding: '12px 16px',
+        padding: '10px 16px',
         background: 'linear-gradient(180deg, #0f172a 0%, #1e1b4b 50%, #0f172a 100%)',
         borderRadius: 12,
         border: '2px solid #334155',
@@ -295,7 +296,7 @@ export function Board({
           justifyContent: 'center',
           alignItems: 'center',
           padding: '4px 0',
-          minHeight: handCount === 0 ? 40 : 180
+          minHeight: handCount === 0 ? 32 : 160
         }}
       >
         {handCount === 0 ? (
