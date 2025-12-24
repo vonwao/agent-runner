@@ -113,15 +113,30 @@ export async function runSupervisorLoop(options: SupervisorOptions): Promise<voi
     };
   };
 
+  // Worker calls can take 5-20 minutes; use longer timeout when worker is in-flight
+  const workerTimeoutMs = stallTimeoutMs * 2; // Double the stall timeout for active workers
+
   const watchdog = setInterval(() => {
     if (stalled) return;
+
+    const lastWorkerCall = options.runStore.getLastWorkerCall();
+    const lastEvent = options.runStore.getLastEvent();
+
+    // Check if worker is in-flight (started after last progress)
+    let workerInFlight = false;
+    let workerStartedAt = 0;
+    if (lastWorkerCall?.at) {
+      workerStartedAt = new Date(lastWorkerCall.at).getTime();
+      workerInFlight = workerStartedAt > lastProgressAt;
+    }
+
     const elapsedMs = Date.now() - lastProgressAt;
-    if (elapsedMs < stallTimeoutMs) return;
+    const effectiveTimeoutMs = workerInFlight ? workerTimeoutMs : stallTimeoutMs;
+
+    if (elapsedMs < effectiveTimeoutMs) return;
 
     stalled = true;
     const current = options.runStore.readState();
-    const lastEvent = options.runStore.getLastEvent();
-    const lastWorkerCall = options.runStore.getLastWorkerCall();
     const stopped = stopRun(current, 'stalled_timeout');
     options.runStore.writeState(stopped);
     options.runStore.appendEvent({
@@ -132,7 +147,10 @@ export async function runSupervisorLoop(options: SupervisorOptions): Promise<voi
         phase: current.phase,
         milestone_index: current.milestone_index,
         last_event_type: lastEvent?.type ?? null,
-        last_worker_call: lastWorkerCall ?? null
+        last_worker_call: lastWorkerCall ?? null,
+        worker_in_flight: workerInFlight,
+        elapsed_ms: elapsedMs,
+        timeout_ms: effectiveTimeoutMs
       }
     });
     writeStopMemo(options.runStore, DEFAULT_STOP_MEMO);
@@ -229,6 +247,18 @@ async function handlePlan(state: RunState, options: SupervisorOptions): Promise<
     runStore: options.runStore,
     stage: 'plan'
   });
+
+  // Check if we were stopped while waiting for worker (e.g., stall watchdog)
+  const currentState = options.runStore.readState();
+  if (currentState.phase === 'STOPPED') {
+    options.runStore.appendEvent({
+      type: 'late_worker_result_ignored',
+      source: 'supervisor',
+      payload: { stage: 'plan', worker: parsed.worker }
+    });
+    return currentState;
+  }
+
   if (!parsed.data) {
     options.runStore.appendEvent({
       type: 'parse_failed',
@@ -363,6 +393,18 @@ async function handleImplement(state: RunState, options: SupervisorOptions): Pro
     runStore: options.runStore,
     stage: 'implement'
   });
+
+  // Check if we were stopped while waiting for worker (e.g., stall watchdog)
+  const currentState = options.runStore.readState();
+  if (currentState.phase === 'STOPPED') {
+    options.runStore.appendEvent({
+      type: 'late_worker_result_ignored',
+      source: 'supervisor',
+      payload: { stage: 'implement', worker: parsed.worker }
+    });
+    return currentState;
+  }
+
   if (!parsed.data) {
     options.runStore.appendEvent({
       type: 'parse_failed',
@@ -606,6 +648,18 @@ async function handleReview(state: RunState, options: SupervisorOptions): Promis
     runStore: options.runStore,
     stage: 'review'
   });
+
+  // Check if we were stopped while waiting for worker (e.g., stall watchdog)
+  const currentState = options.runStore.readState();
+  if (currentState.phase === 'STOPPED') {
+    options.runStore.appendEvent({
+      type: 'late_worker_result_ignored',
+      source: 'supervisor',
+      payload: { stage: 'review', worker: parsed.worker }
+    });
+    return currentState;
+  }
+
   if (!parsed.data) {
     options.runStore.appendEvent({
       type: 'parse_failed',

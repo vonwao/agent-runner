@@ -191,8 +191,8 @@ export async function runCommand(options: RunOptions): Promise<void> {
   const milestones = buildMilestonesFromTask(taskText);
   const milestoneRiskLevel = milestones[0]?.risk_level ?? 'medium';
 
-  // Skip ping if doctor ran (it already validates workers)
-  // Run ping if doctor was skipped (provides quick auth check)
+  // Always run ping for quick auth check (catches OAuth failures early)
+  // Doctor is more thorough but ping is faster for auth validation
   const preflight = await runPreflight({
     repoPath,
     runId,
@@ -201,7 +201,7 @@ export async function runCommand(options: RunOptions): Promise<void> {
     allowDeps: options.allowDeps,
     allowDirty: options.allowDirty,
     milestoneRiskLevel,
-    skipPing: !options.skipDoctor
+    skipPing: false
   });
 
   const runDir = path.resolve('runs', runId);
