@@ -8,7 +8,12 @@ import { listChangedFiles } from '../repo/context.js';
 import { RunStore } from '../store/run-store.js';
 import { Milestone, RunState, WorkerStats } from '../types/schemas.js';
 import { buildImplementPrompt, buildPlanPrompt, buildReviewPrompt } from '../workers/prompts.js';
-import { buildContextPack, formatContextPackForPrompt } from '../context/index.js';
+import {
+  buildContextPack,
+  formatContextPackForPrompt,
+  writeContextPackArtifact,
+  ContextPack
+} from '../context/index.js';
 import { runClaude } from '../workers/claude.js';
 import { runCodex } from '../workers/codex.js';
 import {
@@ -231,7 +236,7 @@ async function handleImplement(state: RunState, options: SupervisorOptions): Pro
 
   // Build context pack if enabled via env var (avoids config schema changes)
   const enableContextPack = process.env.CONTEXT_PACK === '1';
-  let contextPackText: string | undefined;
+  let pack: ContextPack | null = null;
 
   if (enableContextPack) {
     // Extract references from task text (simple pattern matching for v1)
@@ -244,7 +249,7 @@ async function handleImplement(state: RunState, options: SupervisorOptions): Pro
       references.push({ pattern: 'RNG pattern' });
     }
 
-    const pack = buildContextPack({
+    pack = buildContextPack({
       repoRoot: options.repoPath,
       targetRoot: state.scope_lock.allowlist[0]?.replace('/**', '') ?? options.repoPath,
       config: {
@@ -256,9 +261,12 @@ async function handleImplement(state: RunState, options: SupervisorOptions): Pro
       },
       references
     });
-
-    contextPackText = formatContextPackForPrompt(pack);
   }
+
+  // Persist context pack artifact (enabled pack or disabled stub)
+  writeContextPackArtifact(options.runStore.path, pack);
+
+  const contextPackText = pack ? formatContextPackForPrompt(pack) : undefined;
 
   const prompt = buildImplementPrompt({
     milestone,
