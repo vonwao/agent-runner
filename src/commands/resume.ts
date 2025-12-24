@@ -86,7 +86,6 @@ export async function resumeCommand(options: ResumeOptions): Promise<void> {
     phase: resumePhase,
     resume_token: options.runId,
     updated_at: new Date().toISOString(),
-    last_progress_at: new Date().toISOString(),
     last_error: undefined,
     stop_reason: undefined
   };
