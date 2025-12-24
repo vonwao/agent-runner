@@ -10,6 +10,7 @@
     "allowlist": [
       "src/commands/report.ts",
       "src/commands/compare.ts",
+      "src/context/**",
       "docs/**"
     ],
     "denylist": [
