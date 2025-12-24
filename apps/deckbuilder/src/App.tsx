@@ -1,13 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { ChangeEvent } from 'react';
 import { getNextAction } from './ai/ai';
-import { AutoPlayControls } from './components/AutoPlayControls';
 import { Board } from './components/Board';
 import { createInitialState, step, Action } from './engine/engine';
 import { ReplayControls } from './components/ReplayControls';
 import { usePersistence } from './hooks/usePersistence';
 import { deserializeExport, serializeExport } from './utils/serialization';
-import type { GameState } from './engine/types';
 
 export default function App() {
   const {
@@ -25,7 +23,6 @@ export default function App() {
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const replayTimerRef = useRef<number | null>(null);
   const [isAutoPlaying, setIsAutoPlaying] = useState(false);
-  const [actionLog, setActionLog] = useState<string[]>([]);
   const [autoPlaySpeed, setAutoPlaySpeed] = useState(300);
   const autoPlayStopRef = useRef(false);
   const [isEnemyTurn, setIsEnemyTurn] = useState(false);
@@ -42,33 +39,6 @@ export default function App() {
     }
   }, [setState]);
 
-  const describeAction = (action: Action, currentState: GameState) => {
-    switch (action.type) {
-      case 'draw':
-        return 'AI draws a card';
-      case 'play_card': {
-        const card = currentState.player.hand.find(
-          (handCard) => handCard.id === action.cardId
-        );
-        if (card) {
-          return `AI plays ${card.name} (cost ${card.cost}, dmg ${card.damage})`;
-        }
-        return `AI plays card ${action.cardId}`;
-      }
-      case 'end_turn':
-        return 'AI ends the turn';
-      default:
-        return 'AI waits';
-    }
-  };
-
-  const pushActionLog = (entry: string) => {
-    setActionLog((prev) => {
-      const next = [...prev, entry];
-      return next.length > 8 ? next.slice(next.length - 8) : next;
-    });
-  };
-
   const autoPlayGame = async () => {
     if (isAutoPlaying) {
       return;
@@ -77,7 +47,6 @@ export default function App() {
       return;
     }
     setIsAutoPlaying(true);
-    setActionLog([]);
     autoPlayStopRef.current = false;
     let currentState = state;
     try {
@@ -91,7 +60,6 @@ export default function App() {
         }
         const nextAction = getNextAction(currentState);
         const action = nextAction ?? { type: 'end_turn' as const };
-        pushActionLog(describeAction(action, currentState));
         const nextState = step(currentState, action);
         currentState = nextState;
         setState(nextState);
@@ -273,60 +241,15 @@ export default function App() {
         onPlayCard={(cardId) => dispatch({ type: 'play_card', cardId })}
         disableActions={isAutoPlaying || isReplaying || isEnemyTurn}
         isEnemyTurn={isEnemyTurn}
+        onDraw={() => dispatch({ type: 'draw' })}
+        onEndTurn={() => dispatch({ type: 'end_turn' })}
+        isAutoPlaying={isAutoPlaying}
+        isGameOver={isGameOver}
+        autoPlaySpeed={autoPlaySpeed}
+        onAutoPlayGame={autoPlayGame}
+        onStopAutoPlay={stopAutoPlay}
+        onSpeedChange={setAutoPlaySpeed}
       />
-      <section style={{ display: 'flex', gap: 24, alignItems: 'flex-start' }}>
-        <div style={{ display: 'flex', gap: 12 }}>
-          <button
-            type="button"
-            disabled={isAutoPlaying || isReplaying || isEnemyTurn}
-            onClick={() => dispatch({ type: 'draw' })}
-          >
-            Draw
-          </button>
-          <button
-            type="button"
-            disabled={isAutoPlaying || isReplaying || isEnemyTurn}
-            onClick={() => dispatch({ type: 'end_turn' })}
-          >
-            End Turn
-          </button>
-        </div>
-        <AutoPlayControls
-          isAutoPlaying={isAutoPlaying}
-          actionLog={actionLog}
-          autoPlaySpeed={autoPlaySpeed}
-          turn={state.turn}
-          isGameOver={isGameOver}
-          onAutoPlayGame={autoPlayGame}
-          onStopAutoPlay={stopAutoPlay}
-          onSpeedChange={setAutoPlaySpeed}
-        />
-      </section>
-      <section
-        style={{
-          marginTop: 16,
-          padding: 16,
-          background: 'rgba(30, 27, 75, 0.5)',
-          borderRadius: 12,
-          border: '1px solid #334155'
-        }}
-      >
-        <h2 style={{ color: '#cbd5e1', fontSize: 16, marginTop: 0 }}>Action Log</h2>
-        <p style={{ color: '#94a3b8' }}>Total actions: {state.actionLog.length}</p>
-        {state.actionLog.length === 0 ? (
-          <p style={{ color: '#64748b' }}>(no actions yet)</p>
-        ) : (
-          <ol style={{ color: '#94a3b8', paddingLeft: 20 }}>
-            {state.actionLog.map((action, index) => (
-              <li key={`${action.type}-${index}`}>
-                {action.type === 'play_card'
-                  ? `play_card (${action.cardId})`
-                  : action.type}
-              </li>
-            ))}
-          </ol>
-        )}
-      </section>
     </main>
   );
 }

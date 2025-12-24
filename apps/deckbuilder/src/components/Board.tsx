@@ -14,6 +14,14 @@ interface BoardProps {
   onPlayCard?: (cardId: string) => void;
   disableActions?: boolean;
   isEnemyTurn?: boolean;
+  onDraw?: () => void;
+  onEndTurn?: () => void;
+  isAutoPlaying?: boolean;
+  isGameOver?: boolean;
+  autoPlaySpeed?: number;
+  onAutoPlayGame?: () => void;
+  onStopAutoPlay?: () => void;
+  onSpeedChange?: (speed: number) => void;
 }
 
 interface DamagePopup {
@@ -133,7 +141,15 @@ export function Board({
   maxEnemyHp = 30,
   onPlayCard,
   disableActions = false,
-  isEnemyTurn = false
+  isEnemyTurn = false,
+  onDraw,
+  onEndTurn,
+  isAutoPlaying = false,
+  isGameOver = false,
+  autoPlaySpeed = 300,
+  onAutoPlayGame,
+  onStopAutoPlay,
+  onSpeedChange
 }: BoardProps) {
   const handCount = player.hand.length;
   const [playingCardId, setPlayingCardId] = useState<string | null>(null);
@@ -346,6 +362,115 @@ export function Board({
 
         {/* Player Stats */}
         <PlayerStats hp={player.hp} maxHp={maxPlayerHp} energy={player.energy} block={player.block} />
+
+        {/* Action Controls */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          {onDraw && (
+            <button
+              type="button"
+              disabled={disableActions || isAutoPlaying || isEnemyTurn}
+              onClick={onDraw}
+              style={{
+                padding: '6px 12px',
+                fontSize: 12,
+                fontWeight: 600,
+                background: 'linear-gradient(135deg, #3b82f6, #1d4ed8)',
+                color: '#fff',
+                border: 'none',
+                borderRadius: 6,
+                cursor: disableActions || isAutoPlaying || isEnemyTurn ? 'not-allowed' : 'pointer',
+                opacity: disableActions || isAutoPlaying || isEnemyTurn ? 0.5 : 1
+              }}
+            >
+              Draw
+            </button>
+          )}
+          {onEndTurn && (
+            <button
+              type="button"
+              disabled={disableActions || isAutoPlaying || isEnemyTurn}
+              onClick={onEndTurn}
+              style={{
+                padding: '6px 12px',
+                fontSize: 12,
+                fontWeight: 600,
+                background: 'linear-gradient(135deg, #22c55e, #15803d)',
+                color: '#fff',
+                border: 'none',
+                borderRadius: 6,
+                cursor: disableActions || isAutoPlaying || isEnemyTurn ? 'not-allowed' : 'pointer',
+                opacity: disableActions || isAutoPlaying || isEnemyTurn ? 0.5 : 1
+              }}
+            >
+              End Turn
+            </button>
+          )}
+          {onAutoPlayGame && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+              {isAutoPlaying ? (
+                <button
+                  type="button"
+                  onClick={onStopAutoPlay}
+                  style={{
+                    padding: '6px 10px',
+                    fontSize: 11,
+                    fontWeight: 600,
+                    background: 'linear-gradient(135deg, #ef4444, #b91c1c)',
+                    color: '#fff',
+                    border: 'none',
+                    borderRadius: 6,
+                    cursor: 'pointer'
+                  }}
+                >
+                  Stop
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={onAutoPlayGame}
+                  disabled={isGameOver}
+                  style={{
+                    padding: '6px 10px',
+                    fontSize: 11,
+                    fontWeight: 600,
+                    background: isGameOver
+                      ? '#475569'
+                      : 'linear-gradient(135deg, #a855f7, #7c3aed)',
+                    color: '#fff',
+                    border: 'none',
+                    borderRadius: 6,
+                    cursor: isGameOver ? 'not-allowed' : 'pointer',
+                    opacity: isGameOver ? 0.5 : 1
+                  }}
+                  title="Auto-play game"
+                >
+                  Auto
+                </button>
+              )}
+              {onSpeedChange && (
+                <select
+                  value={autoPlaySpeed}
+                  disabled={isAutoPlaying}
+                  onChange={(e) => onSpeedChange(Number(e.target.value))}
+                  style={{
+                    padding: '4px 6px',
+                    fontSize: 10,
+                    background: '#1e293b',
+                    color: '#e2e8f0',
+                    border: '1px solid #475569',
+                    borderRadius: 4,
+                    cursor: isAutoPlaying ? 'not-allowed' : 'pointer',
+                    opacity: isAutoPlaying ? 0.5 : 1
+                  }}
+                >
+                  <option value={500}>Slow</option>
+                  <option value={300}>Med</option>
+                  <option value={100}>Fast</option>
+                </select>
+              )}
+            </div>
+          )}
+        </div>
 
         {/* Discard Pile */}
         <CardStack count={player.discard.length} label="Discard" variant="discard" />
