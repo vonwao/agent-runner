@@ -13,10 +13,11 @@ Make the UI tight, focused, and fit comfortably on screen. Currently the layout 
 
 ## Design Goals
 
-- **Single viewport** - Entire game visible without scrolling on a typical laptop screen
-- **Integrated controls** - All actions accessible from within the game board area
-- **Minimal chrome** - Hide/collapse things that aren't actively needed
-- **Focus on gameplay** - Board is the star, controls are secondary
+- **Single viewport** - Entire game visible without scrolling on a typical laptop screen (assume 900px height max)
+- **No scrolling ever** - If it doesn't fit, use a popup/modal instead
+- **Popups over panels** - Secondary features (export, import, replay, settings) belong in modals, not always-visible sections
+- **Progressive disclosure** - Show only what's needed for current action, reveal more on demand
+- **Focus on gameplay** - Board is the star, everything else is accessible but not competing for attention
 
 ## Requirements
 
@@ -32,16 +33,18 @@ Make the UI tight, focused, and fit comfortably on screen. Currently the layout 
 - Remove the floating bottom-left control panel
 - Speed selector: small dropdown or icons, not prominent
 
-### Milestone 3: Collapse Replay & AI Log
-- Replay section: HIDE completely when not replaying (replayActions.length === 0)
-- When replaying: show compact inline bar, not full-width section
-- AI Actions log: HIDE by default, or show as small collapsible panel
-- These are secondary features, not primary UI
+### Milestone 3: Popups for Secondary Features
+- **Export/Import**: Open in a modal dialog, not visible in main UI
+- **Replay controls**: Only show small "▶ Replay" button if replay is available; controls appear in modal or overlay when active
+- **AI Actions log**: Move to a popup/tooltip on hover or click, not always visible
+- **Settings/options**: If needed, put in a gear icon menu or modal
+- Use a simple Modal component pattern (overlay + centered dialog)
 
-### Milestone 4: Header Cleanup
-- Compact top bar: title + essential buttons (New Game, Auto-save toggle)
-- Export/Import: move to a menu or smaller icons
-- No giant headers or separators
+### Milestone 4: Minimal Header
+- Single row: Game title left, essential icons right (☰ menu for Export/Import/Settings, auto-save indicator)
+- New Game button can stay visible (primary action)
+- No more than ~40px header height
+- Menu icon opens modal with secondary options
 
 ### Milestone 5: Final Polish
 - Verify everything fits in ~900px viewport height without scrolling
@@ -50,22 +53,41 @@ Make the UI tight, focused, and fit comfortably on screen. Currently the layout 
 
 ## Visual Targets
 
+**Main View (always visible, no scroll):**
 ```
 ┌─────────────────────────────────────────┐
-│  Deckbuilder    [New] [≡]    ☑Auto-save │  <- Compact header
+│  Deckbuilder        [New Game] [☰] [●]  │  <- 40px header (● = auto-save on)
 ├─────────────────────────────────────────┤
-│           ┌─────────────┐               │
-│   ENEMY   │ HP ████░░░░ │  ⚔️ 6        │  <- Enemy zone (compact)
-│           └─────────────┘               │
+│                                         │
+│       ENEMY   HP ████░░░░   ⚔️ 6        │  <- Enemy (compact, inline)
 │                                         │
 │    [Card1] [Card2] [Card3] [Card4]      │  <- Hand (cards in row)
 │                                         │
-│  ┌────┐  ┌─────────────────────┐ ┌────┐ │
-│  │DECK│  │ HP ██████████ 40/40 │ │DISC│ │  <- Player zone
-│  │ 5  │  │ ⚡⚡⚡    🛡️ 0       │ │ 2  │ │
-│  └────┘  │  [Draw] [End Turn]  │ └────┘ │  <- Controls IN player zone
-│          └─────────────────────┘        │
-│             [▶ Auto-Play] [Speed: ▾]    │  <- Auto-play compact
+│  ┌────┐     HP ██████████ 40/40  ┌────┐ │
+│  │DECK│     ⚡⚡⚡  🛡️ 0          │DISC│ │  <- Player + deck/discard
+│  │ 5  │                          │ 2  │ │
+│  └────┘  [Draw] [End] [▶Auto]    └────┘ │  <- Actions inline
+└─────────────────────────────────────────┘
+          Total height: ~500px max
+```
+
+**Menu Modal (☰ click):**
+```
+┌─────────────────────┐
+│      Game Menu      │
+├─────────────────────┤
+│  📁 Export Save     │
+│  📂 Import Save     │
+│  ▶️ Replay Game     │  <- Only if replay available
+│  ⚙️ Settings        │
+└─────────────────────┘
+```
+
+**Replay Mode (overlay on game):**
+```
+┌─────────────────────────────────────────┐
+│  ▶ Playing action 3/15   [⏸] [⏹]       │  <- Floating bar at top
+│  ─────────────────●───────────────────  │
 └─────────────────────────────────────────┘
 ```
 
@@ -77,19 +99,21 @@ Make the UI tight, focused, and fit comfortably on screen. Currently the layout 
 - Scrolling required to see basic game state
 
 ## Files to Modify
-- apps/deckbuilder/src/components/Board.tsx
-- apps/deckbuilder/src/components/PlayerStats.tsx
-- apps/deckbuilder/src/components/Card.tsx (if needed for sizing)
-- apps/deckbuilder/src/components/ReplayControls.tsx
-- apps/deckbuilder/src/components/AutoPlayControls.tsx
-- apps/deckbuilder/src/App.tsx
+- apps/deckbuilder/src/components/Board.tsx (layout, integrate controls)
+- apps/deckbuilder/src/components/PlayerStats.tsx (compact)
+- apps/deckbuilder/src/components/Card.tsx (sizing if needed)
+- apps/deckbuilder/src/components/Modal.tsx (new - reusable modal)
+- apps/deckbuilder/src/components/GameMenu.tsx (new - menu modal content)
+- apps/deckbuilder/src/components/ReplayControls.tsx (convert to overlay)
+- apps/deckbuilder/src/components/AutoPlayControls.tsx (compact inline)
+- apps/deckbuilder/src/App.tsx (wire up modals, remove scattered controls)
 
 ## Success Contract
-1. **Fits viewport**: Game fully visible in 900px height without scrolling
-2. **Controls integrated**: Draw/End Turn inside player zone, no floating panels
-3. **Replay hidden**: No replay bar visible when replayActions.length === 0
-4. **AI log hidden**: Not visible by default (can be in collapsed panel or removed)
-5. **No regressions**: All 44 tests pass, all features work
+1. **Fits viewport**: Game board ≤500px tall, total page ≤600px, no scrolling needed
+2. **Controls integrated**: Draw/End Turn/Auto-play all inside the game board area
+3. **Popup pattern**: Export/Import/Replay accessed via menu modal, not always visible
+4. **No floating panels**: No controls outside the main game board (no bottom-left panel)
+5. **No regressions**: All 44 tests pass, all features accessible (some via modals)
 
 ## Scope
 Only modify files in apps/deckbuilder/
