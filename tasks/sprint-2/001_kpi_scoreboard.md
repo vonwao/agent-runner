@@ -6,61 +6,84 @@ Get hard numbers per phase and per worker call. You can't optimize blind.
 ## North Star Metric
 **Time-to-Verified-Checkpoint (TVc)** = minutes from start → verified commit
 
+## Self-Hosting Safety
+✅ **SAFE for self-hosting** (Phase 1 only)
+- Phase 1: Read-only, derives KPIs from existing artifacts
+- Phase 2: Runtime collection - requires manual implementation after Phase 1 validated
+
 ## Success Contract
 
-- [ ] Each run emits `kpi.json` in the run store with:
-  - Wall time by phase (PLAN, IMPLEMENT, VERIFY, REVIEW, CHECKPOINT)
-  - Worker call count by type (claude/codex) and phase
-  - Token/bytes estimate (input + output per call)
-  - Verify retries count
-  - Commands executed count
-  - Files touched count
-  - Total milestones completed vs planned
-- [ ] `report` command shows 10-line KPI summary at top
+- [ ] `report` command shows 10-line KPI summary at top (computed from timeline)
 - [ ] New `compare` subcommand: diff two runs to see where time went
-- [ ] Adds <2% overhead (measured)
+- [ ] Optionally writes `kpi.json` from report command (not runtime)
+- [ ] Phase 2: Runtime emits richer metrics (after Phase 1 validated)
 
-## Implementation Milestones
+## Implementation Approach
 
-### Milestone 1: Timing Infrastructure
-**Goal:** Add phase timing to RunState and emit timing events
+### Key Insight
+The timeline already has everything we need:
+- `phase_start` events with timestamps
+- `worker_stats` event at finalize (already implemented!)
+- `verification` events with durations
+- `run_started` / `stop` events for total duration
 
-**Files expected:**
-- `src/types/schemas.ts` - add `PhaseTimings` type
-- `src/supervisor/runner.ts` - record phase start/end times
-- `src/store/run-store.ts` - add `writeKpi()` method
+**No boot chain changes needed for Phase 1.**
 
-**Done checks:**
-- Each phase emits `phase_start` and `phase_end` events with timestamps
-- RunState tracks cumulative phase timings
-- `kpi.json` written at FINALIZE
+---
 
-### Milestone 2: Worker Call Metrics
-**Goal:** Track token estimates and call metadata per worker invocation
+## Phase 1: Read-Only KPIs (Self-Hostable)
 
-**Files expected:**
-- `src/workers/claude.ts` - return token estimates
-- `src/workers/codex.ts` - return token estimates
-- `src/supervisor/runner.ts` - accumulate worker metrics
-- `src/types/schemas.ts` - extend `WorkerStats` with token counts
-
-**Done checks:**
-- Each worker call logs input/output byte counts
-- Token estimates based on char count / 4 (rough)
-- worker_stats includes `tokens_in`, `tokens_out` totals
-
-### Milestone 3: KPI Report Integration
-**Goal:** Surface KPIs in report command and add compare functionality
+### Milestone 1: KPI Computation in Report
+**Goal:** Compute KPIs from existing timeline.jsonl and state.json
 
 **Files expected:**
-- `src/commands/report.ts` - add KPI summary section
-- `src/commands/compare.ts` - new command to diff runs
-- `src/cli.ts` - register compare command
+- `src/commands/report.ts` - add `computeKpi()` and KPI summary section
 
 **Done checks:**
-- `agent-run report <run-id>` shows KPI summary first
-- `agent-run compare <run-a> <run-b>` shows side-by-side timing diff
-- Compare highlights which phases took longer
+- Report shows: total duration, phase durations, worker call counts
+- Computed from existing events (no runtime changes)
+- Works on any existing run
+
+### Milestone 2: Compare Command
+**Goal:** Diff two runs to see where time went
+
+**Files expected:**
+- `src/commands/compare.ts` - new command
+
+**Done checks:**
+- `agent-run compare <run-a> <run-b>` shows side-by-side
+- Highlights which phases took longer
+- Shows worker call diff
+
+**Allowlist for self-hosting:**
+```json
+{
+  "allowlist": ["src/commands/report.ts", "src/commands/compare.ts"],
+  "denylist": ["src/supervisor/**", "src/store/**", "src/workers/**", "src/cli.ts"]
+}
+```
+
+---
+
+## Phase 2: Runtime KPI Collection (Manual Implementation)
+
+Only after Phase 1 is validated with 3+ clean runs.
+
+### Milestone 3: Enhanced Timeline Events
+**Goal:** Emit richer events with token estimates
+
+**Files expected:**
+- `src/types/schemas.ts` - extend WorkerStats with token counts
+- `src/supervisor/runner.ts` - emit token estimates in events
+- `src/workers/claude.ts` - return byte counts
+- `src/workers/codex.ts` - return byte counts
+
+**Done checks:**
+- Worker calls emit input/output byte counts
+- Token estimates (chars/4) in worker_stats event
+- Phase timing more granular
+
+**⚠️ DO NOT self-host this milestone - touches boot chain.**
 
 ## KPI Schema (draft)
 

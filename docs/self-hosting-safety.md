@@ -4,23 +4,24 @@
 When using the agent framework to modify itself, extra guardrails are required.
 This document defines what's safe to touch and what requires protection.
 
-## Boot Chain (PROTECTED)
+## Boot Chain (PROTECTED - NEVER IN ALLOWLIST)
 
 These files form the "minimum runnable core" - if broken, the tool bricks itself.
 
 ```
-src/supervisor/runner.ts      # Phase orchestration - CRITICAL
+src/supervisor/runner.ts       # Phase orchestration - CRITICAL
 src/supervisor/state-machine.ts # State transitions - CRITICAL
-src/store/run-store.ts        # Persistence - CRITICAL
-src/workers/json.ts           # JSON marker parsing - CRITICAL
-src/workers/claude.ts         # Worker protocol - CRITICAL
-src/workers/codex.ts          # Worker protocol - CRITICAL
-src/commands/resume.ts        # Resume mechanism - CRITICAL
-src/config/load.ts            # Config loading - CRITICAL
-src/cli.ts                    # Entry point - CRITICAL
+src/store/run-store.ts         # Persistence - CRITICAL
+src/workers/json.ts            # JSON marker parsing - CRITICAL
+src/workers/claude.ts          # Worker protocol - CRITICAL
+src/workers/codex.ts           # Worker protocol - CRITICAL
+src/commands/run.ts            # Run entrypoint - CRITICAL
+src/commands/resume.ts         # Resume mechanism - CRITICAL
+src/config/load.ts             # Config loading - CRITICAL
+src/cli.ts                     # Entry point - CRITICAL
 ```
 
-**Rule:** Never include boot chain files in allowlist for self-hosted runs until explicitly requested AND with external verification.
+**Rule:** Boot chain files go in DENYLIST, never allowlist. No exceptions until you've done 5+ clean self-hosted runs on safe targets.
 
 ## External Verification Commands
 
@@ -56,36 +57,44 @@ git reset --hard known-good-YYYYMMDD && pnpm install && pnpm build && pnpm test
 
 ## Sprint 2 Task Safety Analysis
 
-### ✅ SAFE: 001_kpi_scoreboard.md
+### ✅ SAFE: 001_kpi_scoreboard.md (Read-Only Approach)
 
-**Risk Level:** Low - purely additive instrumentation
+**Risk Level:** Low - derives KPIs from existing artifacts, no runtime changes
 
 **Why safe:**
-- Adds new fields to schemas (additive)
-- Adds new methods to run-store (additive)
-- New compare command (new file)
-- Doesn't change core execution flow
+- Computes KPIs from existing `timeline.jsonl` and `state.json`
+- Only modifies report command (read-only relative to execution)
+- New compare command (new file, no boot chain touches)
+- Optionally writes `kpi.json` from report command (not runtime)
+
+**Key insight:** `report.ts` already parses timeline events. KPIs are computed
+at report time, not execution time. Zero boot chain changes needed.
 
 **Allowlist:**
 ```json
 {
   "scope": {
     "allowlist": [
-      "src/types/schemas.ts",
-      "src/store/run-store.ts",
       "src/commands/report.ts",
       "src/commands/compare.ts"
     ],
     "denylist": [
-      "src/supervisor/runner.ts",
-      "src/workers/*.ts",
+      "src/supervisor/**",
+      "src/store/**",
+      "src/workers/**",
+      "src/commands/run.ts",
+      "src/commands/resume.ts",
       "src/cli.ts"
     ]
   }
 }
 ```
 
-**Canary check:** `node dist/cli.js doctor && node dist/cli.js report <test-run>`
+**Canary check:** `pnpm build && pnpm test && node dist/cli.js report <test-run>`
+
+**Phase 2 (after 3+ clean runs):** If you want runtime KPI collection,
+then touch `src/types/schemas.ts` and `src/supervisor/runner.ts` - but
+only after read-only KPIs are working.
 
 ---
 
