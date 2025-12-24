@@ -381,6 +381,12 @@ async function handleVerify(state: RunState, options: SupervisorOptions): Promis
 
   const results: string[] = [];
   const start = Date.now();
+
+  // Compute verification cwd (default to repo root)
+  const verifyCwd = options.config.verification.cwd
+    ? path.join(options.repoPath, options.config.verification.cwd)
+    : options.repoPath;
+
   for (const tier of selection.tiers) {
     const elapsed = (Date.now() - start) / 1000;
     const remaining = options.config.verification.max_verify_time_per_milestone - elapsed;
@@ -398,7 +404,7 @@ async function handleVerify(state: RunState, options: SupervisorOptions): Promis
     const verifyResult = await runVerification(
       tier,
       commands,
-      options.repoPath,
+      verifyCwd,
       Math.floor(remaining)
     );
     const artifactName = `tests_${tier}.log`;

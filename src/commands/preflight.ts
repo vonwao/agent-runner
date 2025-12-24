@@ -1,3 +1,5 @@
+import fs from 'node:fs';
+import path from 'node:path';
 import { AgentConfig } from '../config/schema.js';
 import { buildRepoContext } from '../repo/context.js';
 import { checkLockfiles, checkScope } from '../supervisor/scope-guard.js';
@@ -60,6 +62,14 @@ export async function runPreflight(
   }
   if (!lockfileCheck.ok) {
     reasons.push('lockfile_violation');
+  }
+
+  // Check verification.cwd exists if specified
+  if (options.config.verification.cwd) {
+    const verifyCwd = path.join(options.repoPath, options.config.verification.cwd);
+    if (!fs.existsSync(verifyCwd)) {
+      reasons.push(`verification_cwd_missing:${options.config.verification.cwd}`);
+    }
   }
 
   const selection = selectTiersWithReasons(options.config.verification, {

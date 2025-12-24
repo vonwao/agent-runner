@@ -7,6 +7,7 @@ const riskTriggerSchema = z.object({
 });
 
 const verificationSchema = z.object({
+  cwd: z.string().optional(), // Working directory for verification commands (relative to repo root)
   tier0: z.array(z.string()).default([]),
   tier1: z.array(z.string()).default([]),
   tier2: z.array(z.string()).default([]),
