@@ -161,6 +161,7 @@ async function handlePlan(state: RunState, options: SupervisorOptions): Promise<
     schema: planOutputSchema
   });
   if (!parsed.data) {
+    logRawOutputsToArtifact(options.runStore, 'plan', parsed.rawOutputs);
     options.runStore.appendEvent({
       type: 'parse_failed',
       source: planWorker,
@@ -293,6 +294,7 @@ async function handleImplement(state: RunState, options: SupervisorOptions): Pro
     schema: implementerOutputSchema
   });
   if (!parsed.data) {
+    logRawOutputsToArtifact(options.runStore, 'implement', parsed.rawOutputs);
     options.runStore.appendEvent({
       type: 'parse_failed',
       source: implementWorker,
@@ -534,6 +536,7 @@ async function handleReview(state: RunState, options: SupervisorOptions): Promis
     schema: reviewOutputSchema
   });
   if (!parsed.data) {
+    logRawOutputsToArtifact(options.runStore, 'review', parsed.rawOutputs);
     options.runStore.appendEvent({
       type: 'parse_failed',
       source: reviewWorker,
@@ -677,9 +680,24 @@ function writeStopMemo(runStore: RunStore, content: string): void {
   runStore.writeMemo('stop.md', content);
 }
 
+function sleep(ms: number): Promise<void> {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+function jitter(baseMs: number): number {
+  // Add 0-50% random jitter
+  return baseMs + Math.random() * baseMs * 0.5;
+}
+
+// Jitter delays for parse retries: 250ms, 1s
+const RETRY_DELAYS_MS = [250, 1000];
+
 /**
  * Unified worker call that dispatches to the appropriate worker based on config.
  * This allows phases to be configured to use either Claude or Codex.
+ *
+ * Retry policy (N=2): up to 2 retries with jitter delays (250ms, 1s).
+ * Returns raw outputs for artifact logging on failure.
  */
 async function callWorkerJson<S extends z.ZodTypeAny>(input: {
   prompt: string;
@@ -687,36 +705,60 @@ async function callWorkerJson<S extends z.ZodTypeAny>(input: {
   workerType: 'claude' | 'codex';
   workers: AgentConfig['workers'];
   schema: S;
-}): Promise<{ data?: z.infer<S>; error?: string; output?: string; retry_count?: number; worker: string }> {
+}): Promise<{
+  data?: z.infer<S>;
+  error?: string;
+  output?: string;
+  rawOutputs?: string[];
+  retry_count?: number;
+  worker: string;
+}> {
   const worker = input.workers[input.workerType];
   const runWorker = input.workerType === 'claude' ? runClaude : runCodex;
+  const rawOutputs: string[] = [];
+  let lastError: string | undefined;
 
+  // First attempt
   const first = await runWorker({
     prompt: input.prompt,
     repo_path: input.repoPath,
     worker
   });
   const firstOutput = first.observations.join('\n');
+  rawOutputs.push(firstOutput);
   const firstParsed = parseJsonWithSchema(firstOutput, input.schema);
   if (firstParsed.data) {
     return { data: firstParsed.data, output: firstOutput, retry_count: 0, worker: input.workerType };
   }
+  lastError = firstParsed.error;
 
+  // Retry with clearer JSON instructions + jitter delays
   const retryPrompt = `${input.prompt}\n\nOutput JSON only between BEGIN_JSON and END_JSON. No other text.`;
-  const retry = await runWorker({
-    prompt: retryPrompt,
-    repo_path: input.repoPath,
-    worker
-  });
-  const retryOutput = retry.observations.join('\n');
-  const retryParsed = parseJsonWithSchema(retryOutput, input.schema);
-  if (retryParsed.data) {
-    return { data: retryParsed.data, output: retryOutput, retry_count: 1, worker: input.workerType };
+
+  for (let i = 0; i < RETRY_DELAYS_MS.length; i++) {
+    const delayMs = jitter(RETRY_DELAYS_MS[i]);
+    await sleep(delayMs);
+
+    const retry = await runWorker({
+      prompt: retryPrompt,
+      repo_path: input.repoPath,
+      worker
+    });
+    const retryOutput = retry.observations.join('\n');
+    rawOutputs.push(retryOutput);
+    const retryParsed = parseJsonWithSchema(retryOutput, input.schema);
+    if (retryParsed.data) {
+      return { data: retryParsed.data, output: retryOutput, retry_count: i + 1, worker: input.workerType };
+    }
+    lastError = retryParsed.error ?? lastError;
   }
+
+  // All retries exhausted
   return {
-    error: retryParsed.error ?? firstParsed.error ?? 'JSON parse failed',
-    output: retryOutput || firstOutput,
-    retry_count: 1,
+    error: lastError ?? 'JSON parse failed after retries',
+    output: rawOutputs[rawOutputs.length - 1],
+    rawOutputs,
+    retry_count: RETRY_DELAYS_MS.length,
     worker: input.workerType
   };
 }
@@ -730,6 +772,37 @@ function snippet(output?: string): string {
     return trimmed;
   }
   return `${trimmed.slice(0, 800)}...`;
+}
+
+/**
+ * Log raw worker outputs to artifact for debugging parse failures.
+ * Writes last 2KB of each attempt to help diagnose malformed responses.
+ */
+function logRawOutputsToArtifact(
+  runStore: RunStore,
+  stage: string,
+  rawOutputs: string[] | undefined
+): void {
+  if (!rawOutputs || rawOutputs.length === 0) return;
+
+  const MAX_BYTES = 2048;
+  const lines: string[] = [`# Raw Worker Outputs (${stage})`, ''];
+
+  for (let i = 0; i < rawOutputs.length; i++) {
+    const output = rawOutputs[i];
+    const label = i === 0 ? 'Initial attempt' : `Retry ${i}`;
+    const tail = output.length > MAX_BYTES
+      ? output.slice(-MAX_BYTES)
+      : output;
+
+    lines.push(`## ${label}`);
+    lines.push('```');
+    lines.push(tail);
+    lines.push('```');
+    lines.push('');
+  }
+
+  runStore.writeArtifact(`raw-outputs-${stage}.md`, lines.join('\n'));
 }
 
 /**
