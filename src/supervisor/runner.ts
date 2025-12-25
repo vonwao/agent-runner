@@ -168,8 +168,12 @@ export async function runSupervisorLoop(options: SupervisorOptions): Promise<voi
     writeStopMemo(options.runStore, DEFAULT_STOP_MEMO);
   }, 10000);
 
+  let ticksUsed = 0;
+
   try {
     for (let tick = 0; tick < options.maxTicks; tick += 1) {
+      ticksUsed = tick + 1;
+
       if (stalled) {
         break;
       }
@@ -186,7 +190,7 @@ export async function runSupervisorLoop(options: SupervisorOptions): Promise<voi
         options.runStore.appendEvent({
           type: 'stop',
           source: 'supervisor',
-          payload: { reason: 'time_budget_exceeded' }
+          payload: { reason: 'time_budget_exceeded', ticks_used: ticksUsed }
         });
         writeStopMemo(options.runStore, DEFAULT_STOP_MEMO);
         break;
@@ -202,6 +206,31 @@ export async function runSupervisorLoop(options: SupervisorOptions): Promise<voi
 
       state = recordProgress(state);
       options.runStore.writeState(state);
+    }
+
+    // Check if we exited due to maxTicks (run not complete, not stalled, not time-exceeded)
+    if (!stalled) {
+      let finalState = options.runStore.readState();
+      if (finalState.phase !== 'STOPPED') {
+        // Mark as stopped with max_ticks_reached reason (resumable, not a failure)
+        finalState = stopRun(finalState, 'max_ticks_reached');
+        options.runStore.writeState(finalState);
+        options.runStore.appendEvent({
+          type: 'max_ticks_reached',
+          source: 'supervisor',
+          payload: {
+            ticks_used: ticksUsed,
+            max_ticks: options.maxTicks,
+            phase: finalState.phase,
+            milestone_index: finalState.milestone_index,
+            milestones_total: finalState.milestones.length
+          }
+        });
+        console.log(
+          `\nMax ticks reached (${ticksUsed}/${options.maxTicks}) at milestone ${finalState.milestone_index + 1}/${finalState.milestones.length}.`
+        );
+        console.log(`Tip: ~5 ticks per milestone. Use \`agent-run resume ${finalState.run_id}\` to continue.\n`);
+      }
     }
   } finally {
     clearInterval(watchdog);

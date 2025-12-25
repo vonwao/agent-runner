@@ -1,6 +1,7 @@
 import { RunStore } from '../store/run-store.js';
 import { resolveRunId } from '../store/run-utils.js';
 import { computeKpiFromEvents } from './report.js';
+import { RunState } from '../types/schemas.js';
 import fs from 'node:fs';
 import path from 'node:path';
 import readline from 'node:readline';
@@ -58,6 +59,10 @@ export interface SummaryJson {
     stalls_triggered: number;
     /** Late results that were discarded */
     late_results_ignored: number;
+    /** Whether run stopped due to max ticks (not a failure, just budget) */
+    max_ticks_hit: boolean;
+    /** Total ticks used in this run (including across resumes) */
+    ticks_used: number;
   };
 
   /** Configuration snapshot */
@@ -120,6 +125,9 @@ export async function summarizeCommand(options: SummarizeOptions): Promise<void>
   // Get total milestones from state if available
   const totalMilestones = state.milestones?.length ?? null;
 
+  // Extract ticks info from timeline events (sum across all sessions including resumes)
+  const ticksInfo = extractTicksInfo(events, state);
+
   const summary: SummaryJson = {
     run_id: resolvedRunId,
     outcome: kpi.outcome,
@@ -143,7 +151,9 @@ export async function summarizeCommand(options: SummarizeOptions): Promise<void>
       fallback_used: kpi.reliability.fallback_used,
       fallback_count: kpi.reliability.fallback_count,
       stalls_triggered: kpi.reliability.stalls_triggered,
-      late_results_ignored: kpi.reliability.late_results_ignored
+      late_results_ignored: kpi.reliability.late_results_ignored,
+      max_ticks_hit: ticksInfo.max_ticks_hit,
+      ticks_used: ticksInfo.ticks_used
     },
     config: configPayload,
     timestamps: {
@@ -248,4 +258,44 @@ function extractConfigPayload(
 function msToSeconds(ms: number | null): number | null {
   if (ms === null) return null;
   return Math.round(ms / 1000);
+}
+
+interface TicksInfo {
+  max_ticks_hit: boolean;
+  ticks_used: number;
+}
+
+/**
+ * Extract ticks info from timeline events and state.
+ * Sums ticks_used across all sessions (including resumes).
+ */
+function extractTicksInfo(
+  events: Array<Record<string, unknown>>,
+  state: RunState
+): TicksInfo {
+  // Check if stop_reason indicates max_ticks_reached
+  const stopReason = state.stop_reason;
+  const maxTicksHit = stopReason === 'max_ticks_reached';
+
+  // Sum ticks_used from max_ticks_reached events and stop events with ticks_used
+  let totalTicks = 0;
+  for (const event of events) {
+    if (event.type === 'max_ticks_reached' || event.type === 'stop') {
+      const payload = event.payload as Record<string, unknown> | undefined;
+      const ticksUsed = payload?.ticks_used as number | undefined;
+      if (typeof ticksUsed === 'number') {
+        totalTicks += ticksUsed;
+      }
+    }
+  }
+
+  // If no ticks_used found in events, estimate from phase_start count
+  if (totalTicks === 0) {
+    totalTicks = events.filter((e) => e.type === 'phase_start').length;
+  }
+
+  return {
+    max_ticks_hit: maxTicksHit,
+    ticks_used: totalTicks
+  };
 }
