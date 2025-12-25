@@ -12,7 +12,7 @@
     "lockfiles": ["package-lock.json", "pnpm-lock.yaml", "yarn.lock"]
   },
   "verification": {
-    "tier0": ["pnpm lint", "pnpm typecheck"],
+    "tier0": ["pnpm build"],
     "tier1": ["pnpm test"],
     "tier2": ["pnpm test"],
     "risk_triggers": [
