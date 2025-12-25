@@ -1,0 +1,101 @@
+You’ve made real progress, but the last 30 hours proved something important: **your bottleneck is meta-ops**, not agent capability. If you want “maximum reliability, efficiency, autonomy” fast, you need to kill the failure modes that waste whole runs.
+
+Here’s the shortest path that actually moves the needle.
+
+## The 3 things that are blocking reliability right now
+
+### 1) Runs dying for dumb reasons (auth, wrong CWD, dirty worktree)
+
+These are *preventable* and they burn 10–20 minutes at a time.
+
+**Fix:** add a hard preflight gate + `verification.cwd`.
+
+* **Preflight should fail in <5 seconds** if:
+
+  * OAuth token expired / not logged in
+  * `verification.cwd` missing / outside repo
+  * dirty worktree (or dirty outside an allowed set)
+  * package manager mismatch warning (optional)
+
+This alone will make your system feel 2–3× more reliable because you stop wasting full runs.
+
+### 2) Codex parse errors and worker flake
+
+Right now a flaky worker can stop the run entirely. That’s not “autonomy.”
+
+**Fix:** treat parse errors like a retryable infra failure, not a fatal task failure:
+
+* retry the same worker call N times with backoff
+* if still failing, **fallback** to the other worker (Codex → Claude) for that step
+* record it as a KPI (“infra_retries”, “fallback_used”)
+
+### 3) Run stalling / “needs resume”
+
+If the supervisor can stall, you don’t have walk-away autonomy.
+
+**Fix:** implement a watchdog:
+
+* supervisor writes `last_progress_at` (or emits `heartbeat`) every tick / phase transition
+* if no progress for X minutes, automatically triggers a controlled retry or stops with a clear reason (`stalled_timeout`)
+* optionally auto-runs `resume` once if it detects a recoverable stuck state
+
+This turns “mystery stall” into “controlled behavior.”
+
+---
+
+## What to do next (in order), with tight success contracts
+
+### Task A — `verification.cwd` (minimal semantics, huge win)
+
+**Scope:** verifier only.
+**Success contract:** no more `cd apps/... &&` hacks in configs; tactical-grid config becomes clean; baseline runs stop failing due to CWD.
+
+### Task B — Preflight: auth + cwd + dirty-worktree + ping
+
+**Success contract:** any of these issues stops the run in <5s with an actionable message; no more 10m wasted runs for `/login`.
+
+### Task C — Worker flake hardening: parse retry + fallback
+
+**Success contract:** when Codex returns malformed output, run continues and either succeeds or stops with a clear “infra failure after retries”; parse failures drop sharply in KPI logs.
+
+### Task D — Stall watchdog
+
+**Success contract:** a stuck run never silently hangs; it either self-recovers or stops with `stalled_timeout` and a debug breadcrumb (phase, last event, worker last call).
+
+### Task E — Worktree-per-run (ops efficiency)
+
+**Success contract:** zero manual `rm -rf`; benchmark runs become reproducible; your “super agent” becomes ~5 commands instead of 50.
+
+---
+
+## Where self-hosting fits (and how to go faster without shooting yourself)
+
+Right now, **the next reliability tasks live in denylisted surfaces** (`src/supervisor/**`, verifier, workers). So don’t pretend you can “self-host everything” yet.
+
+Do this instead:
+
+* **Manual patch** Tasks A–D (boot/brain changes)
+* **Self-host** everything around them:
+
+  * docs
+  * KPI/report/compare updates
+  * task specs
+  * benchmark harness scripts (if they live outside denylist)
+
+Once A–D are stable for 3–5 runs in a row, you can loosen self-hosting boundaries.
+
+---
+
+## The big picture: why you felt “slow”
+
+Because you were doing reliability work *without* fixing the meta-ops loop first. That makes every experiment expensive.
+
+If you knock out A–D, you’ll feel the system “snap” into place: fewer dead runs, fewer babysits, fewer retries, and the agent actually gets to spend time coding.
+
+---
+
+If you want, I’ll turn A–E into a sprint board with:
+
+* which files change (manual vs self-host)
+* exact acceptance tests for each
+* which KPIs you should watch to confirm the win (parse retries, stalls, preflight stops, total duration, IMPLEMENT cycles).
