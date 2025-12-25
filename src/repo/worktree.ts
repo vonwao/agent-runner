@@ -65,6 +65,13 @@ export async function createWorktree(
   // Validate worktree was created successfully (git throws on error)
   await git(['status', '--porcelain'], worktreePath);
 
+  // Symlink node_modules from original repo if present (for npm/pnpm projects)
+  const originalNodeModules = path.join(originalRepoPath, 'node_modules');
+  const worktreeNodeModules = path.join(worktreePath, 'node_modules');
+  if (fs.existsSync(originalNodeModules) && !fs.existsSync(worktreeNodeModules)) {
+    fs.symlinkSync(originalNodeModules, worktreeNodeModules, 'dir');
+  }
+
   return {
     worktree_enabled: true,
     original_repo_path: originalRepoPath,
