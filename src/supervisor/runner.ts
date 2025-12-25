@@ -34,6 +34,7 @@ import { stopRun, updatePhase } from './state-machine.js';
 const MAX_MILESTONE_RETRIES = 3;
 
 const DEFAULT_STALL_TIMEOUT_MINUTES = 15;
+const DEFAULT_WORKER_TIMEOUT_MINUTES = 30;
 
 function resolveStallTimeoutMs(config: AgentConfig): number {
   const envValue = Number.parseInt(process.env.STALL_TIMEOUT_MINUTES ?? '', 10);
@@ -44,6 +45,16 @@ function resolveStallTimeoutMs(config: AgentConfig): number {
   const verifyMinutes = Math.ceil(config.verification.max_verify_time_per_milestone / 60);
   const fallbackMinutes = Math.max(DEFAULT_STALL_TIMEOUT_MINUTES, verifyMinutes + 5);
   return fallbackMinutes * 60 * 1000;
+}
+
+function resolveWorkerTimeoutMs(stallTimeoutMs: number): number {
+  const envValue = Number.parseInt(process.env.WORKER_TIMEOUT_MINUTES ?? '', 10);
+  if (Number.isFinite(envValue) && envValue > 0) {
+    return envValue * 60 * 1000;
+  }
+  // Default: use WORKER_TIMEOUT_MINUTES default, or 2x stall timeout if stall is already high
+  const defaultMs = DEFAULT_WORKER_TIMEOUT_MINUTES * 60 * 1000;
+  return Math.max(defaultMs, stallTimeoutMs * 2);
 }
 
 /**
@@ -114,7 +125,8 @@ export async function runSupervisorLoop(options: SupervisorOptions): Promise<voi
   };
 
   // Worker calls can take 5-20 minutes; use longer timeout when worker is in-flight
-  const workerTimeoutMs = stallTimeoutMs * 2; // Double the stall timeout for active workers
+  // Configurable via WORKER_TIMEOUT_MINUTES env var (default: 30min or 2x stall timeout)
+  const workerTimeoutMs = resolveWorkerTimeoutMs(stallTimeoutMs);
 
   const watchdog = setInterval(() => {
     if (stalled) return;
