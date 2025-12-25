@@ -12,7 +12,8 @@ import {
   DiagnosisContext,
   DiagnosisSignal,
   NextAction,
-  StopDiagnosisJson
+  StopDiagnosisJson,
+  StopReasonFamily
 } from './types.js';
 
 interface DiagnosisResult {
@@ -20,6 +21,61 @@ interface DiagnosisResult {
   confidence: number;
   signals: DiagnosisSignal[];
   nextActions: NextAction[];
+}
+
+/**
+ * Map diagnosis category to stop reason family.
+ */
+function categoryToFamily(category: DiagnosisCategory): StopReasonFamily {
+  switch (category) {
+    case 'auth_expired':
+      return 'auth';
+    case 'verification_cwd_mismatch':
+    case 'scope_violation':
+    case 'lockfile_restricted':
+    case 'guard_violation_dirty':
+      return 'guard';
+    case 'verification_failure':
+      return 'verification';
+    case 'worker_parse_failure':
+      return 'worker';
+    case 'stall_timeout':
+      return 'stall';
+    case 'max_ticks_reached':
+    case 'time_budget_exceeded':
+      return 'budget';
+    default:
+      return 'unknown';
+  }
+}
+
+/**
+ * Generate resume command for budget-related stops.
+ */
+function generateResumeCommand(
+  runId: string,
+  category: DiagnosisCategory,
+  events: Array<Record<string, unknown>>
+): string | undefined {
+  if (category === 'max_ticks_reached') {
+    const ticksEvent = events.find((e) => e.type === 'max_ticks_reached');
+    const currentTicks = (ticksEvent?.payload as Record<string, unknown>)?.max_ticks as number ?? 50;
+    const suggestedTicks = Math.ceil(currentTicks * 1.5);
+    return `node dist/cli.js resume ${runId} --max-ticks ${suggestedTicks}`;
+  }
+
+  if (category === 'time_budget_exceeded') {
+    const runStarted = events.find((e) => e.type === 'run_started');
+    const currentTime = (runStarted?.payload as Record<string, unknown>)?.time_budget_minutes as number ?? 60;
+    const suggestedTime = Math.ceil(currentTime * 1.5);
+    return `node dist/cli.js resume ${runId} --time ${suggestedTime}`;
+  }
+
+  if (category === 'stall_timeout') {
+    return `WORKER_TIMEOUT_MINUTES=45 node dist/cli.js resume ${runId}`;
+  }
+
+  return undefined;
 }
 
 /**
@@ -68,12 +124,18 @@ export function diagnoseStop(context: DiagnosisContext): StopDiagnosisJson {
     outcome = 'running';
   }
 
+  // Compute family and resume command
+  const family = categoryToFamily(best.category);
+  const resumeCommand = generateResumeCommand(runId, best.category, events);
+
   return {
     run_id: runId,
     outcome,
     stop_reason: state.stop_reason ?? null,
+    stop_reason_family: family,
     primary_diagnosis: best.category,
     confidence: best.confidence,
+    resume_command: resumeCommand,
     signals: best.signals,
     next_actions: best.nextActions,
     related_artifacts: {
@@ -142,7 +204,7 @@ function diagnoseAuthExpired(ctx: DiagnosisContext): DiagnosisResult {
         error.includes('unauthorized')
       ) {
         signals.push({
-          source: 'worker_error',
+          source: 'event.worker_error',
           pattern: 'auth_error',
           snippet: error.slice(0, 200)
         });
@@ -214,7 +276,7 @@ function diagnoseVerificationCwdMismatch(ctx: DiagnosisContext): DiagnosisResult
         output.includes('Cannot find module')
       ) {
         signals.push({
-          source: event.type as string,
+          source: `event.${event.type}`,
           pattern: 'path_error',
           snippet: output.slice(0, 200)
         });
@@ -240,6 +302,10 @@ function diagnoseVerificationCwdMismatch(ctx: DiagnosisContext): DiagnosisResult
     }
   }
 
+  // Extract the missing cwd from signals if available
+  const cwdSignal = signals.find((s) => s.pattern === 'verification_cwd_missing');
+  const missingPath = cwdSignal?.snippet?.split(':')[1] ?? 'apps/subdir';
+
   return {
     category: 'verification_cwd_mismatch',
     confidence,
@@ -249,12 +315,13 @@ function diagnoseVerificationCwdMismatch(ctx: DiagnosisContext): DiagnosisResult
         ? [
             {
               title: 'Set verification.cwd in config',
-              command: 'Edit agent.config.json: "verification": { "cwd": "path/to/subdir" }',
+              command: `jq '.verification.cwd = "${missingPath}"' agent.config.json > tmp.json && mv tmp.json agent.config.json`,
               why: 'Verification commands running in wrong directory'
             },
             {
-              title: 'Check tier command paths',
-              why: 'Ensure npm/test commands match actual project structure'
+              title: 'Verify config and retry',
+              command: `cat agent.config.json | jq '.verification' && node dist/cli.js resume ${ctx.runId}`,
+              why: 'Check cwd is set correctly then resume the run'
             }
           ]
         : []
@@ -296,6 +363,9 @@ function diagnoseScopeViolation(ctx: DiagnosisContext): DiagnosisResult {
     confidence = Math.max(confidence, 0.7);
   }
 
+  // Extract violated paths from signals
+  const violatedPaths = signals[0]?.snippet ?? '';
+
   return {
     category: 'scope_violation',
     confidence,
@@ -304,13 +374,14 @@ function diagnoseScopeViolation(ctx: DiagnosisContext): DiagnosisResult {
       confidence > 0
         ? [
             {
-              title: 'Update scope.allowlist',
-              command: 'Edit agent.config.json: "scope": { "allowlist": ["path/**"] }',
-              why: 'Files modified are outside the allowed scope'
+              title: 'View current scope config',
+              command: `cat agent.config.json | jq '.scope'`,
+              why: 'See current allowlist to understand what needs updating'
             },
             {
-              title: 'Narrow task scope',
-              why: 'Modify task description to stay within allowed directories'
+              title: 'Resume with expanded scope',
+              command: `node dist/cli.js resume ${ctx.runId}`,
+              why: `After updating allowlist to include: ${violatedPaths.split(',')[0]}`
             }
           ]
         : []
@@ -350,13 +421,14 @@ function diagnoseLockfileRestricted(ctx: DiagnosisContext): DiagnosisResult {
       confidence > 0
         ? [
             {
-              title: 'Allow dependency changes',
-              command: 'node dist/cli.js run ... --allow-deps',
+              title: 'Resume with --allow-deps',
+              command: `node dist/cli.js resume ${ctx.runId} --allow-deps`,
               why: 'Task requires installing dependencies'
             },
             {
-              title: 'Modify task to avoid deps',
-              why: 'Reword task to use existing packages only'
+              title: 'Check which lockfiles changed',
+              command: `git diff --name-only | grep -E 'package-lock|yarn.lock|pnpm-lock'`,
+              why: 'See exactly which dependency files were modified'
             }
           ]
         : []
@@ -393,7 +465,7 @@ function diagnoseVerificationFailure(ctx: DiagnosisContext): DiagnosisResult {
 
     if (event.type === 'verify_failure') {
       signals.push({
-        source: 'verify_failure',
+        source: 'event.verify_failure',
         pattern: 'verification_failed',
         snippet: String((event.payload as Record<string, unknown>)?.reason ?? '')
       });
@@ -406,6 +478,9 @@ function diagnoseVerificationFailure(ctx: DiagnosisContext): DiagnosisResult {
     confidence = Math.max(confidence, 0.95);
   }
 
+  // Build the run command from the first failing signal
+  const failingCommand = signals[0]?.snippet?.split(';')[0]?.trim() ?? 'npm test';
+
   return {
     category: 'verification_failure',
     confidence,
@@ -414,14 +489,14 @@ function diagnoseVerificationFailure(ctx: DiagnosisContext): DiagnosisResult {
       confidence > 0
         ? [
             {
-              title: 'Run failing command manually',
-              command: signals[0]?.snippet ? `cd <repo> && ${signals[0].snippet.split(';')[0]}` : 'npm test',
-              why: 'Identify specific test/lint failure'
+              title: 'View verification logs',
+              command: `cat runs/${ctx.runId}/artifacts/tests_tier0.log 2>/dev/null || cat runs/${ctx.runId}/artifacts/verify.log`,
+              why: 'See full error output from failing tests/lint'
             },
             {
-              title: 'Check verification logs',
-              command: `cat runs/${ctx.runId}/artifacts/tests_tier0.log`,
-              why: 'See full error output'
+              title: 'Resume to retry verification',
+              command: `node dist/cli.js resume ${ctx.runId}`,
+              why: `Will re-run: ${failingCommand}`
             }
           ]
         : []
@@ -455,7 +530,7 @@ function diagnoseWorkerParseFailure(ctx: DiagnosisContext): DiagnosisResult {
     if (event.type === 'worker_fallback') {
       const payload = event.payload as Record<string, unknown> | undefined;
       signals.push({
-        source: 'worker_fallback',
+        source: 'event.worker_fallback',
         pattern: 'fallback_triggered',
         snippet: `${payload?.from} -> ${payload?.to}: ${payload?.reason}`
       });
@@ -471,14 +546,14 @@ function diagnoseWorkerParseFailure(ctx: DiagnosisContext): DiagnosisResult {
       confidence > 0
         ? [
             {
-              title: 'Retry with alternate worker',
-              command: 'Resume and monitor worker output',
-              why: 'Worker returned malformed response'
+              title: 'View raw worker response',
+              command: `cat runs/${ctx.runId}/artifacts/last_worker_response.txt 2>/dev/null | head -100`,
+              why: 'See what the worker actually returned'
             },
             {
-              title: 'Check worker output',
-              command: `cat runs/${ctx.runId}/artifacts/last_worker_response.txt`,
-              why: 'See what the worker actually returned'
+              title: 'Resume to retry with worker',
+              command: `node dist/cli.js resume ${ctx.runId}`,
+              why: 'Will retry the failed worker call'
             }
           ]
         : []
@@ -565,7 +640,7 @@ function diagnoseMaxTicksReached(ctx: DiagnosisContext): DiagnosisResult {
     if (event?.payload) {
       const payload = event.payload as Record<string, unknown>;
       signals.push({
-        source: 'max_ticks_reached',
+        source: 'event.max_ticks_reached',
         pattern: 'tick_limit',
         snippet: `${payload.ticks_used}/${payload.max_ticks} ticks, milestone ${(payload.milestone_index as number) + 1}/${payload.milestones_total}`
       });
@@ -672,14 +747,14 @@ function diagnoseGuardViolationDirty(ctx: DiagnosisContext): DiagnosisResult {
       confidence > 0
         ? [
             {
-              title: 'Use worktree mode',
-              command: 'node dist/cli.js run ... --worktree',
-              why: 'Isolates agent work from your changes'
+              title: 'See uncommitted changes',
+              command: `git status --short`,
+              why: 'Check what changes are blocking the run'
             },
             {
-              title: 'Commit or stash changes',
-              command: 'git stash -u && node dist/cli.js run ...',
-              why: 'Clean worktree required for non-worktree mode'
+              title: 'Stash and retry with worktree',
+              command: `git stash -u && node dist/cli.js resume ${ctx.runId} --worktree`,
+              why: 'Isolates agent work from your changes'
             }
           ]
         : []

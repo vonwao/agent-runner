@@ -6,6 +6,19 @@
  */
 
 /**
+ * Stop reason families - high-level grouping of stop reasons.
+ */
+export type StopReasonFamily =
+  | 'guard'       // scope_violation, lockfile, dirty worktree, cwd mismatch
+  | 'budget'      // max_ticks, time_budget
+  | 'verification'// test/lint/typecheck failures
+  | 'worker'      // parse failures, fallbacks
+  | 'stall'       // no progress detected
+  | 'auth'        // authentication issues
+  | 'complete'    // successful completion
+  | 'unknown';
+
+/**
  * Primary diagnosis categories.
  * Maps to specific signals and next actions.
  */
@@ -60,11 +73,17 @@ export interface StopDiagnosisJson {
   /** Original stop reason from state */
   stop_reason: string | null;
 
+  /** High-level family of the stop reason */
+  stop_reason_family: StopReasonFamily;
+
   /** Primary diagnosis category */
   primary_diagnosis: DiagnosisCategory;
 
   /** Confidence score (0-1) */
   confidence: number;
+
+  /** Pre-filled resume command (for budget stops) */
+  resume_command?: string;
 
   /** Signals that led to this diagnosis */
   signals: DiagnosisSignal[];

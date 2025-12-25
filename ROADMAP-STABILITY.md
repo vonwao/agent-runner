@@ -308,9 +308,11 @@ node dist/cli.js resume <run_id> --max-ticks 75
 10. `guard_violation_dirty` - Uncommitted changes in repo
 
 **Each Diagnosis Includes**:
+- `stop_reason_family`: high-level grouping (guard, budget, verification, worker, stall, auth)
+- `resume_command`: pre-filled for budget stops (max_ticks_reached, time_budget_exceeded, stall_timeout)
 - Confidence score (0-1)
-- Evidence signals (source + pattern + snippet)
-- Prioritized next actions with exact commands
+- Evidence signals with dot-notation sources (e.g., `guard.reasons`, `event.max_ticks_reached`)
+- Prioritized next actions with runnable shell commands (no placeholders)
 - Escalation advice for repeated failures
 
 **Integration**:
@@ -345,6 +347,7 @@ After each significant change, record:
 | 2025-12-25 | Phase 5.4: bench:full | 1 guard-fail | 1 complete ✅ | - | Worktree runs passed |
 | 2025-12-25 | Phase 4.4: progress tracking | 1 complete, 1 guard-fail | - | - | `last_progress_at` now set initially |
 | 2025-12-25 | Phase 7: auto-diagnose | - | - | - | 10 diagnostic rules, stop.json/stop.md artifacts |
+| 2025-12-25 | Phase 7: taxonomy fixes | - | - | - | stop_reason_family, resume_command, runnable next_actions |
 
 ---
 
