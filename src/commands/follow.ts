@@ -18,10 +18,85 @@ interface RunState {
   phase: string;
   milestone_index: number;
   stop_reason?: string;
+  last_progress_at?: string;
+}
+
+interface LastWorkerCall {
+  worker: string;
+  stage: string;
+  at: string;
 }
 
 const TERMINAL_PHASES = ['STOPPED', 'DONE'];
 const POLL_INTERVAL_MS = 1000;
+
+/**
+ * Find the best run to follow: prefer running runs, else latest.
+ * Returns { runId, wasRunning } so caller can inform user.
+ */
+export function findBestRunToFollow(): { runId: string; wasRunning: boolean } | null {
+  const runsDir = path.resolve('runs');
+  if (!fs.existsSync(runsDir)) {
+    return null;
+  }
+
+  const runIds = fs
+    .readdirSync(runsDir, { withFileTypes: true })
+    .filter((e) => e.isDirectory() && /^\d{14}$/.test(e.name))
+    .map((e) => e.name)
+    .sort()
+    .reverse();
+
+  if (runIds.length === 0) {
+    return null;
+  }
+
+  // Check for a running run (newest first)
+  for (const runId of runIds) {
+    const statePath = path.join(runsDir, runId, 'state.json');
+    if (!fs.existsSync(statePath)) continue;
+    try {
+      const state = JSON.parse(fs.readFileSync(statePath, 'utf-8')) as RunState;
+      if (!TERMINAL_PHASES.includes(state.phase)) {
+        return { runId, wasRunning: true };
+      }
+    } catch {
+      continue;
+    }
+  }
+
+  // No running run, return latest
+  return { runId: runIds[0], wasRunning: false };
+}
+
+function formatDuration(ms: number): string {
+  if (ms < 1000) return `${ms}ms`;
+  const seconds = Math.floor(ms / 1000);
+  if (seconds < 60) return `${seconds}s`;
+  const minutes = Math.floor(seconds / 60);
+  const remainingSeconds = seconds % 60;
+  if (minutes < 60) {
+    return remainingSeconds > 0 ? `${minutes}m${remainingSeconds}s` : `${minutes}m`;
+  }
+  const hours = Math.floor(minutes / 60);
+  const remainingMinutes = minutes % 60;
+  return remainingMinutes > 0 ? `${hours}h${remainingMinutes}m` : `${hours}h`;
+}
+
+function readLastWorkerCall(runDir: string): LastWorkerCall | null {
+  const statePath = path.join(runDir, 'state.json');
+  if (!fs.existsSync(statePath)) return null;
+  try {
+    const content = fs.readFileSync(statePath, 'utf-8');
+    const state = JSON.parse(content) as Record<string, unknown>;
+    if (state.last_worker_call && typeof state.last_worker_call === 'object') {
+      return state.last_worker_call as LastWorkerCall;
+    }
+  } catch {
+    // ignore
+  }
+  return null;
+}
 
 function formatEvent(event: TimelineEvent): string {
   const time = new Date(event.timestamp).toLocaleTimeString();
@@ -188,12 +263,18 @@ export async function followCommand(options: FollowOptions): Promise<void> {
     return;
   }
 
-  // Poll for new events
+  // Poll for new events with progress age display
+  let lastStatusLine = '';
   while (!terminated) {
     await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL_MS));
 
     const update = await tailTimeline(timelinePath, lastLineCount);
     for (const event of update.events) {
+      // Clear status line before printing event
+      if (lastStatusLine) {
+        process.stdout.write('\r' + ' '.repeat(lastStatusLine.length) + '\r');
+        lastStatusLine = '';
+      }
       console.log(formatEvent(event));
     }
     lastLineCount = update.newLineCount;
@@ -202,10 +283,32 @@ export async function followCommand(options: FollowOptions): Promise<void> {
     const state = readState(statePath);
     if (state && TERMINAL_PHASES.includes(state.phase)) {
       terminated = true;
+      if (lastStatusLine) {
+        process.stdout.write('\r' + ' '.repeat(lastStatusLine.length) + '\r');
+      }
       console.log('---');
       console.log(`Run terminated: ${state.phase}`);
       if (state.stop_reason) {
         console.log(`Reason: ${state.stop_reason}`);
+      }
+    } else if (state) {
+      // Show progress age status line
+      const progressAge = state.last_progress_at
+        ? formatDuration(Date.now() - new Date(state.last_progress_at).getTime())
+        : '?';
+      const workerCall = readLastWorkerCall(runDir);
+      const workerStatus = workerCall
+        ? `worker_in_flight=${workerCall.worker}:${workerCall.stage}`
+        : 'idle';
+      const statusLine = `  [${state.phase}] last progress ${progressAge} ago, ${workerStatus}`;
+
+      // Only update if changed
+      if (statusLine !== lastStatusLine) {
+        if (lastStatusLine) {
+          process.stdout.write('\r' + ' '.repeat(lastStatusLine.length) + '\r');
+        }
+        process.stdout.write(statusLine);
+        lastStatusLine = statusLine;
       }
     }
   }
