@@ -1,0 +1,242 @@
+# Stability & Autonomy Roadmap
+
+**Goal**: Prove stability → lock in benchmark loop → prune complexity → add autonomy multipliers.
+
+**Started**: 2025-12-25
+**Last Updated**: 2025-12-25
+
+---
+
+## Phase 1: Validation Harness [COMPLETE]
+
+- [x] Create `scripts/bench.ts` benchmark harness
+- [x] Support presets: minimal, context, stress, full
+- [x] Capture run IDs and call `summarize` for each
+- [x] Output markdown table with KPIs
+- [x] Output CSV export for analysis
+- [x] Add npm scripts: `bench`, `bench:dry`, `bench:minimal`, `bench:context`, `bench:stress`, `bench:full`
+- [x] Support `--repeat N` for variance analysis
+- [x] Support `--config <path>` for custom scenarios
+
+**Artifacts**: `scripts/bench.ts`, `bench-results.md`, `bench-report.html`
+
+---
+
+## Phase 2: Diagnostic Runs [IN PROGRESS]
+
+### 2.1 Initial Validation Runs
+- [x] Run minimal preset (noop tasks) - 2025-12-25
+  - Run IDs: `20251225153352`, `20251225153524`
+  - Result: noop-worktree completed, noop-no-worktree failed (guard check on dirty repo)
+
+### 2.2 Context Pack A/B - First Attempt
+- [x] Run context preset (engine-bootstrap) - 2025-12-25
+  - Run IDs: `20251225153714` (ctx-off), `20251225154343` (ctx-on)
+  - Result: Both stopped with `implement_blocked`
+  - Root cause: verification commands running at repo root instead of `apps/tactical-grid`
+  - Finding: Context pack ON was 8% faster (5m49s vs 6m19s)
+
+### 2.3 Configuration Fixes
+- [x] Create task-specific config: `tasks/tactical-grid/agent.config.json`
+  - Added `verification.cwd: "apps/tactical-grid"`
+  - Scoped verification commands to run in subdirectory
+- [x] Enhance context pack with `blockers` guidance section
+- [x] Add verification cwd to context pack output
+
+### 2.4 Context Pack A/B - Re-run with Fixed Config [COMPLETE]
+- [x] Run context preset with `--config tasks/tactical-grid/agent.config.json`
+- [x] Verify runs complete (not blocked)
+- [x] Compare worker_calls, verify_retries, duration
+
+**Results** (2025-12-25):
+
+| Metric | ctx-off (20251225171118) | ctx-on (20251225171938) |
+|--------|--------------------------|-------------------------|
+| Stop Reason | complete ✅ | complete ✅ |
+| Duration | ~8 min | ~8 min |
+| Worker Calls | 9 (claude=5, codex=4) | 9 (claude=5, codex=4) |
+| Milestone Retries | 0 | 0 |
+| Ticks Used | 18 | 18 |
+
+**Key Finding**: Config fix solved the blocking issue. Both runs now complete successfully.
+Context pack didn't show measurable improvement on this task (possibly too simple to benefit).
+
+### 2.5 Stress Test Runs
+- [ ] Run stress preset for multi-milestone churn analysis
+- [ ] Identify top recurring stop_reasons
+- [ ] Document 0-intervention success rate
+
+---
+
+## Phase 3: Context Pack A/B Analysis [PENDING]
+
+**Success Criteria** (need 1-2 to consider context pack validated):
+- [ ] worker_calls down ≥ 25%
+- [ ] verify_retries down to zero (or near-zero)
+- [ ] IMPLEMENT phase time down ≥ 20%
+- [ ] fewer IMPLEMENT↔VERIFY cycles (measured by ticks_used)
+
+**If criteria not met**:
+- [ ] Change context pack contents (exact commands + 1-2 code patterns > big blobs)
+- [ ] Re-run A/B until criteria met or approach abandoned
+
+---
+
+## Phase 4: Simplify Stop/Progress Authority [IN PROGRESS]
+
+**Goal**: One canonical "progress stamp" source, dumb supervisor loop.
+
+### 4.1 Audit Current Stop Paths [COMPLETE]
+
+**Stop Reasons and Where They're Set**:
+
+| Reason | Location | Line | Context |
+|--------|----------|------|---------|
+| `stalled_timeout` | runner.ts | 152 | Watchdog timer fires |
+| `time_budget_exceeded` | runner.ts | 188 | Main loop time check |
+| `max_ticks_reached` | runner.ts | 216 | End of main loop |
+| `plan_parse_failed` | runner.ts | 308 | handlePlan() |
+| `plan_scope_violation` | runner.ts | 328 | handlePlan() |
+| `milestone_missing` | runner.ts | 367, 651 | handleImplement(), handleReview() |
+| `implement_parse_failed` | runner.ts | 456 | handleImplement() |
+| `implement_blocked` | runner.ts | 466 | handleImplement() |
+| `guard_violation` | runner.ts, run.ts | 490, 312 | handleImplement(), preflight |
+| `verification_failed_max_retries` | runner.ts | 586 | handleVerify() |
+| `review_parse_failed` | runner.ts | 711 | handleReview() |
+| `complete` | runner.ts | 803 | handleFinalize() |
+
+**Stop Check Locations** (`state.phase === 'STOPPED'`):
+
+| Location | Line | Purpose |
+|----------|------|---------|
+| runner.ts | 182 | Main loop break check |
+| runner.ts | 293-294 | Late result check via `checkForLateResult()` (handlePlan) |
+| runner.ts | 434-435 | Late result check via `checkForLateResult()` (handleImplement) |
+| runner.ts | 682-683 | Late result check via `checkForLateResult()` (handleReview) |
+
+**Key Functions**:
+- `stopRun(state, reason)` in `state-machine.ts:58` - Canonical stop function
+- `stopWithError(state, options, reason, error)` in `runner.ts:806` - Wrapper that logs event + writes memo
+- `checkForLateResult(options, stage, worker)` in `runner.ts:843` - Unified late result check
+
+### 4.2 Unify Late Result Checks [COMPLETE]
+
+- [x] Created `checkForLateResult()` helper function
+- [x] Applied to handlePlan (line 293)
+- [x] Applied to handleImplement (line 434)
+- [x] Applied to handleReview (line 682)
+- [x] Verified TypeScript compiles without errors
+
+**Before**: 3 locations with 8 lines of duplicated code each
+**After**: 3 locations with 2-line helper calls + 1 shared function
+
+### 4.3 Unify Budget Limit Checks [DEFERRED]
+
+*Stretch goal - current implementation is reasonable*
+
+- [ ] Create single `shouldStop(state, options): { stop: boolean, reason: string, metadata: object }`
+- [ ] Move all stop checks into this function
+- [ ] Supervisor loop becomes: read state → run phase handler → append events → check shouldStop
+
+### 4.4 Simplify Progress Tracking
+- [ ] Define canonical "progress stamp" (likely: `last_progress_at` in state.json)
+- [ ] Derive all other progress indicators from timeline events
+- [ ] Remove duplicate progress tracking
+
+### 4.4 Verify No Regressions
+- [ ] Run bench:minimal after refactor
+- [ ] Confirm same outcomes as before
+
+---
+
+## Phase 5: Worktree Hardening [PENDING]
+
+**Goal**: Make worktrees boringly reliable.
+
+### 5.1 Disk Hygiene
+- [ ] Add `gc` command to CLI: `agent-run gc [--dry-run] [--older-than <days>]`
+- [ ] Delete old `runs/*/worktree` directories (never touch artifacts)
+- [ ] Add `--prune-worktrees` flag to `run` command (clean before start)
+- [ ] Print disk usage summary
+
+### 5.2 Resume Correctness
+- [ ] If worktree missing on resume, recreate deterministically at same base SHA
+- [ ] If branch mismatch, warn loudly and require `--force`
+- [ ] Add `worktree_recreated` timeline event when recreated
+
+### 5.3 Node Modules Strategy
+- [ ] Document strategy in `docs/worktrees.md`
+- [ ] Enforce symlink creation in `createWorktree()`
+- [ ] Add `node_modules_symlinked` timeline event
+- [ ] Handle missing source node_modules gracefully
+
+### 5.4 Verify Reliability
+- [ ] Run bench:full with worktree enabled
+- [ ] Confirm 0 worktree-related failures
+
+---
+
+## Phase 6: Defaults & Knobs UX [PENDING]
+
+**Goal**: Eliminate "is it broken?" moments.
+
+### 6.1 Print Active Defaults at Run Start
+- [ ] Log effective config at startup:
+  - maxTicks, time_budget_minutes
+  - stall_timeout, worker_timeout
+  - ping on/off, worktree on/off
+  - context_pack on/off
+- [ ] Format as single-line or compact block
+
+### 6.2 Resume Command Hints
+- [ ] When `max_ticks_reached`: emit exact resume command
+- [ ] When `time_budget_exceeded`: emit exact resume command
+- [ ] Include `--time` and `--max-ticks` suggestions
+
+### 6.3 Structured Stop Output
+- [ ] Always write `stop.md` with:
+  - What happened (stop_reason)
+  - Likely cause (from last_error if available)
+  - Next action (exact command or manual step)
+
+---
+
+## Phase 7: Autonomy Multiplier [PENDING]
+
+**Choose ONE after phases 1-6 complete**:
+
+### Option A: Fast Path for Trivial Diffs
+- [ ] Detect "trivial" change set (< N files, < M lines)
+- [ ] If tier0 passed and change set trivial: skip REVIEW
+- [ ] Checkpoint immediately
+- [ ] Add `fast_path_used` timeline event
+
+### Option B: Auto-Diagnose Stop Reason
+- [ ] Parse `last_error` into structured diagnosis
+- [ ] Map common errors to likely causes
+- [ ] Generate specific next-action in `stop.md`
+- [ ] Include exact commands to run
+
+---
+
+## Metrics to Track
+
+After each significant change, record:
+
+| Date | Change | bench:minimal | bench:context | Notes |
+|------|--------|---------------|---------------|-------|
+| 2025-12-25 | Initial harness | 1 pass, 1 guard-fail | 2 blocked (cwd) | Need config fix |
+| 2025-12-25 | Config fix + context pack blockers | TBD | 2 complete ✅ | Both runs completed |
+| 2025-12-25 | Late result check helper | - | - | Unified 3 locations in runner.ts |
+
+---
+
+## Files Modified/Created
+
+- `scripts/bench.ts` - Benchmark harness
+- `tasks/tactical-grid/agent.config.json` - Task-specific config
+- `src/context/pack.ts` - Enhanced with blockers guidance
+- `src/context/__tests__/artifact.test.ts` - Fixed to include blockers field
+- `src/supervisor/runner.ts` - Added `checkForLateResult()` helper, unified late result checks
+- `bench-report.html` - Analysis report
+- `ROADMAP-STABILITY.md` - This file

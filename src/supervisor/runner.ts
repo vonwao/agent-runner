@@ -290,15 +290,8 @@ async function handlePlan(state: RunState, options: SupervisorOptions): Promise<
   });
 
   // Check if we were stopped while waiting for worker (e.g., stall watchdog)
-  const currentState = options.runStore.readState();
-  if (currentState.phase === 'STOPPED') {
-    options.runStore.appendEvent({
-      type: 'late_worker_result_ignored',
-      source: 'supervisor',
-      payload: { stage: 'plan', worker: parsed.worker }
-    });
-    return currentState;
-  }
+  const lateStopPlan = checkForLateResult(options, 'plan', parsed.worker);
+  if (lateStopPlan) return lateStopPlan;
 
   if (!parsed.data) {
     options.runStore.appendEvent({
@@ -438,15 +431,8 @@ async function handleImplement(state: RunState, options: SupervisorOptions): Pro
   });
 
   // Check if we were stopped while waiting for worker (e.g., stall watchdog)
-  const currentState = options.runStore.readState();
-  if (currentState.phase === 'STOPPED') {
-    options.runStore.appendEvent({
-      type: 'late_worker_result_ignored',
-      source: 'supervisor',
-      payload: { stage: 'implement', worker: parsed.worker }
-    });
-    return currentState;
-  }
+  const lateStopImplement = checkForLateResult(options, 'implement', parsed.worker);
+  if (lateStopImplement) return lateStopImplement;
 
   if (!parsed.data) {
     options.runStore.appendEvent({
@@ -693,15 +679,8 @@ async function handleReview(state: RunState, options: SupervisorOptions): Promis
   });
 
   // Check if we were stopped while waiting for worker (e.g., stall watchdog)
-  const currentState = options.runStore.readState();
-  if (currentState.phase === 'STOPPED') {
-    options.runStore.appendEvent({
-      type: 'late_worker_result_ignored',
-      source: 'supervisor',
-      payload: { stage: 'review', worker: parsed.worker }
-    });
-    return currentState;
-  }
+  const lateStopReview = checkForLateResult(options, 'review', parsed.worker);
+  if (lateStopReview) return lateStopReview;
 
   if (!parsed.data) {
     options.runStore.appendEvent({
@@ -854,6 +833,28 @@ function sleep(ms: number): Promise<void> {
 function jitter(baseMs: number): number {
   // Add 0-50% random jitter
   return baseMs + Math.random() * baseMs * 0.5;
+}
+
+/**
+ * Check if run was stopped while waiting for a worker (e.g., by stall watchdog).
+ * Returns the current state if stopped, null otherwise.
+ * If stopped, logs a late_worker_result_ignored event.
+ */
+function checkForLateResult(
+  options: SupervisorOptions,
+  stage: 'plan' | 'implement' | 'review',
+  workerType: string
+): RunState | null {
+  const currentState = options.runStore.readState();
+  if (currentState.phase === 'STOPPED') {
+    options.runStore.appendEvent({
+      type: 'late_worker_result_ignored',
+      source: 'supervisor',
+      payload: { stage, worker: workerType }
+    });
+    return currentState;
+  }
+  return null;
 }
 
 // Jitter delays for parse retries: 250ms, 1s
