@@ -96,6 +96,108 @@ const DEFAULT_STOP_MEMO = [
   '- '
 ].join('\n');
 
+interface StopMemoParams {
+  reason: string;
+  runId: string;
+  phase: string;
+  milestoneIndex: number;
+  milestonesTotal: number;
+  lastError?: string;
+  suggestedTime?: number;
+  suggestedTicks?: number;
+}
+
+/**
+ * Build a structured stop memo with clear next actions.
+ * Phase 6.3: Structured Stop Output
+ */
+function buildStructuredStopMemo(params: StopMemoParams): string {
+  const {
+    reason,
+    runId,
+    phase,
+    milestoneIndex,
+    milestonesTotal,
+    lastError,
+    suggestedTime,
+    suggestedTicks
+  } = params;
+
+  const reasonDescriptions: Record<string, string> = {
+    time_budget_exceeded: 'Time budget was exhausted before completing all milestones.',
+    max_ticks_reached: 'Maximum phase transitions (ticks) reached before completion.',
+    stalled_timeout: 'No progress detected for too long (worker may have hung).',
+    verification_failed_max_retries: 'Verification failed too many times on the same milestone.',
+    implement_blocked: 'Implementer reported it could not proceed.',
+    guard_violation: 'Changes violated scope or lockfile constraints.',
+    plan_parse_failed: 'Planner output could not be parsed.',
+    implement_parse_failed: 'Implementer output could not be parsed.',
+    review_parse_failed: 'Reviewer output could not be parsed.',
+    complete: 'Run completed successfully.'
+  };
+
+  const likelyCauses: Record<string, string> = {
+    time_budget_exceeded: 'Task took longer than expected, or time budget was too short.',
+    max_ticks_reached: 'Complex task with many iterations, or tick budget was too low.',
+    stalled_timeout: 'Worker CLI hung, network issues, or API timeout.',
+    verification_failed_max_retries: 'Code changes broke tests/lint and fixes kept failing.',
+    implement_blocked: 'Missing dependencies, unclear requirements, or environment issue.',
+    guard_violation: 'Implementer modified files outside allowed scope.',
+    plan_parse_failed: 'Planner returned malformed JSON.',
+    implement_parse_failed: 'Implementer returned malformed JSON.',
+    review_parse_failed: 'Reviewer returned malformed JSON.'
+  };
+
+  let nextAction: string;
+  if (reason === 'time_budget_exceeded') {
+    nextAction = `agent-run resume ${runId}${suggestedTime ? ` --time ${suggestedTime}` : ''}`;
+  } else if (reason === 'max_ticks_reached') {
+    nextAction = `agent-run resume ${runId}${suggestedTicks ? ` --max-ticks ${suggestedTicks}` : ''}`;
+  } else if (reason === 'complete') {
+    nextAction = 'None - run completed successfully.';
+  } else {
+    nextAction = `agent-run resume ${runId} --force  # Review state first`;
+  }
+
+  const lines = [
+    '# Stop Memo',
+    '',
+    '## What Happened',
+    `- **Stop reason**: ${reason}`,
+    `- **Phase**: ${phase}`,
+    `- **Progress**: Milestone ${milestoneIndex + 1} of ${milestonesTotal}`,
+    '',
+    '## Description',
+    reasonDescriptions[reason] || 'Unknown stop reason.',
+    '',
+    '## Likely Cause',
+    likelyCauses[reason] || 'Unknown cause.'
+  ];
+
+  if (lastError) {
+    lines.push('', '## Last Error', '```', lastError.slice(0, 500), '```');
+  }
+
+  lines.push(
+    '',
+    '## Next Action',
+    '```bash',
+    nextAction,
+    '```',
+    '',
+    '## Tips',
+    reason === 'time_budget_exceeded'
+      ? '- Consider increasing --time if task is complex'
+      : reason === 'max_ticks_reached'
+      ? '- ~5 ticks per milestone is typical. Increase --max-ticks for complex tasks.'
+      : reason === 'stalled_timeout'
+      ? '- Check if workers are authenticated. Run `agent-run doctor` to diagnose.'
+      : '- Review the timeline.jsonl for detailed event history.'
+  );
+
+  return lines.join('\n');
+}
+
 /**
  * Main supervisor loop that orchestrates the agent through phases.
  *
@@ -192,7 +294,21 @@ export async function runSupervisorLoop(options: SupervisorOptions): Promise<voi
           source: 'supervisor',
           payload: { reason: 'time_budget_exceeded', ticks_used: ticksUsed }
         });
-        writeStopMemo(options.runStore, DEFAULT_STOP_MEMO);
+        const memo = buildStructuredStopMemo({
+          reason: 'time_budget_exceeded',
+          runId: state.run_id,
+          phase: state.phase,
+          milestoneIndex: state.milestone_index,
+          milestonesTotal: state.milestones.length,
+          lastError: state.last_error,
+          suggestedTime: Math.ceil(options.timeBudgetMinutes * 1.5),
+          suggestedTicks: options.maxTicks
+        });
+        writeStopMemo(options.runStore, memo);
+        console.log(
+          `\nTime budget exceeded (${Math.floor(elapsedMinutes)}/${options.timeBudgetMinutes} min) at milestone ${state.milestone_index + 1}/${state.milestones.length}.`
+        );
+        console.log(`Tip: Use \`agent-run resume ${state.run_id} --time ${Math.ceil(options.timeBudgetMinutes * 1.5)}\` to continue with more time.\n`);
         break;
       }
 
@@ -226,10 +342,20 @@ export async function runSupervisorLoop(options: SupervisorOptions): Promise<voi
             milestones_total: finalState.milestones.length
           }
         });
+        const memo = buildStructuredStopMemo({
+          reason: 'max_ticks_reached',
+          runId: finalState.run_id,
+          phase: finalState.phase,
+          milestoneIndex: finalState.milestone_index,
+          milestonesTotal: finalState.milestones.length,
+          lastError: finalState.last_error,
+          suggestedTicks: Math.ceil(options.maxTicks * 1.5)
+        });
+        writeStopMemo(options.runStore, memo);
         console.log(
           `\nMax ticks reached (${ticksUsed}/${options.maxTicks}) at milestone ${finalState.milestone_index + 1}/${finalState.milestones.length}.`
         );
-        console.log(`Tip: ~5 ticks per milestone. Use \`agent-run resume ${finalState.run_id}\` to continue.\n`);
+        console.log(`Tip: ~5 ticks per milestone. Use \`agent-run resume ${finalState.run_id} --max-ticks ${Math.ceil(options.maxTicks * 1.5)}\` to continue.\n`);
       }
     }
   } finally {

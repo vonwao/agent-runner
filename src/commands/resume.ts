@@ -17,6 +17,20 @@ export interface ResumeOptions {
   force: boolean;
 }
 
+/**
+ * Format effective configuration for display at resume.
+ */
+function formatResumeConfig(options: ResumeOptions): string {
+  const parts = [
+    `run_id=${options.runId}`,
+    `time=${options.time}min`,
+    `ticks=${options.maxTicks}`,
+    `allow_deps=${options.allowDeps ? 'yes' : 'no'}`,
+    `force=${options.force ? 'yes' : 'no'}`
+  ];
+  return `Resume: ${parts.join(' | ')}`;
+}
+
 interface ConfigSnapshotWithWorktree extends AgentConfig {
   _worktree?: WorktreeInfo;
 }
@@ -47,6 +61,9 @@ function readTaskArtifact(runDir: string): string {
 }
 
 export async function resumeCommand(options: ResumeOptions): Promise<void> {
+  // Log effective configuration for transparency
+  console.log(formatResumeConfig(options));
+
   const runStore = RunStore.init(options.runId);
   let state: RunState;
   try {

@@ -87,6 +87,22 @@ function normalizePath(input: string): string {
   return input.replace(/\\/g, '/').replace(/\/+$/, '');
 }
 
+/**
+ * Format effective configuration for display at run start.
+ * Shows key settings to eliminate "is it broken?" confusion.
+ */
+function formatEffectiveConfig(options: RunOptions): string {
+  const contextPack = process.env.CONTEXT_PACK === '1' ? 'on' : 'off';
+  const parts = [
+    `time=${options.time}min`,
+    `ticks=${options.maxTicks}`,
+    `worktree=${options.worktree ? 'on' : 'off'}`,
+    `context_pack=${contextPack}`,
+    `allow_deps=${options.allowDeps ? 'yes' : 'no'}`
+  ];
+  return `Config: ${parts.join(' | ')}`;
+}
+
 function basePathFromAllowlist(pattern: string, repoPath: string): string | null {
   const globIndex = pattern.search(/[*?[\]]/);
   const withoutGlob = globIndex === -1 ? pattern : pattern.slice(0, globIndex);
@@ -157,6 +173,9 @@ export async function runCommand(options: RunOptions): Promise<void> {
   const configPath = resolveConfigPath(repoPath, options.config);
   const config = loadConfig(configPath);
   const taskText = fs.readFileSync(taskPath, 'utf-8');
+
+  // Log effective configuration for transparency
+  console.log(formatEffectiveConfig(options));
 
   // Run doctor checks unless skipped
   if (options.skipDoctor) {
