@@ -3,7 +3,7 @@
 **Goal**: Prove stability → lock in benchmark loop → prune complexity → add autonomy multipliers.
 
 **Started**: 2025-12-25
-**Last Updated**: 2025-12-25 (Phase 6 complete)
+**Last Updated**: 2025-12-25 (Phase 4.4, 5, 6 complete)
 
 ---
 
@@ -96,9 +96,11 @@ Context pack didn't show measurable improvement on this task (possibly too simpl
 
 ---
 
-## Phase 4: Simplify Stop/Progress Authority [IN PROGRESS]
+## Phase 4: Simplify Stop/Progress Authority [MOSTLY COMPLETE]
 
 **Goal**: One canonical "progress stamp" source, dumb supervisor loop.
+
+**Status**: 4.1, 4.2, 4.4, 4.5 complete. 4.3 deferred (current implementation is reasonable).
 
 ### 4.1 Audit Current Stop Paths [COMPLETE]
 
@@ -152,14 +154,24 @@ Context pack didn't show measurable improvement on this task (possibly too simpl
 - [ ] Move all stop checks into this function
 - [ ] Supervisor loop becomes: read state → run phase handler → append events → check shouldStop
 
-### 4.4 Simplify Progress Tracking
-- [ ] Define canonical "progress stamp" (likely: `last_progress_at` in state.json)
-- [ ] Derive all other progress indicators from timeline events
-- [ ] Remove duplicate progress tracking
+### 4.4 Simplify Progress Tracking [COMPLETE]
 
-### 4.4 Verify No Regressions
-- [ ] Run bench:minimal after refactor
-- [ ] Confirm same outcomes as before
+**Audit Results**: Current design is already clean:
+- `recordProgress()` in runner.ts is the canonical progress stamp
+- `last_progress_at` tracks meaningful work (for stall detection)
+- `updated_at` tracks any state mutation
+- `phase_started_at` tracks phase timing
+
+**Changes Made**:
+- [x] Added `last_progress_at` to `createInitialState()` for consistency
+- [x] Documented progress tracking design in state-machine.ts
+- [x] Verified no regressions with bench:minimal
+
+### 4.5 Verify No Regressions [COMPLETE]
+- [x] Run bench:minimal after refactor - 2025-12-25
+- [x] Confirm same outcomes as before
+
+**Results**: noop-worktree: complete ✅, noop-no-worktree: guard_violation (expected)
 
 ---
 
@@ -300,6 +312,7 @@ After each significant change, record:
 | 2025-12-25 | Late result + worktree | - | - | 2/3 complete | noop-strict: tick limit by design |
 | 2025-12-25 | Phase 6: Defaults UX | - | - | - | Config logging + structured stop memos |
 | 2025-12-25 | Phase 5.4: bench:full | 1 guard-fail | 1 complete ✅ | - | Worktree runs passed |
+| 2025-12-25 | Phase 4.4: progress tracking | 1 complete, 1 guard-fail | - | - | `last_progress_at` now set initially |
 
 ---
 
@@ -310,6 +323,7 @@ After each significant change, record:
 - `src/context/pack.ts` - Enhanced with blockers guidance
 - `src/context/__tests__/artifact.test.ts` - Fixed to include blockers field
 - `src/supervisor/runner.ts` - Added `checkForLateResult()` helper, `buildStructuredStopMemo()`, structured stop output
+- `src/supervisor/state-machine.ts` - Added `last_progress_at` to initial state, documented progress tracking design
 - `src/commands/gc.ts` - **NEW** Disk cleanup command
 - `src/commands/run.ts` - Added `formatEffectiveConfig()` for config logging at startup
 - `src/commands/resume.ts` - Added `formatResumeConfig()`, worktree event logging

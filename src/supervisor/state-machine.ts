@@ -9,6 +9,18 @@ export interface InitStateInput {
   denylist: string[];
 }
 
+/**
+ * Creates initial run state with all timestamps set.
+ *
+ * Progress Tracking Design:
+ * - `started_at`: Run start time (never changes)
+ * - `updated_at`: Last state mutation (any write)
+ * - `phase_started_at`: Current phase start time
+ * - `last_progress_at`: Last meaningful work (for stall detection)
+ *
+ * The supervisor's `recordProgress()` is the canonical way to mark progress.
+ * It updates both `last_progress_at` and `updated_at` together.
+ */
 export function createInitialState(input: InitStateInput): RunState {
   const now = new Date().toISOString();
   const milestones = buildMilestonesFromTask(input.task_text);
@@ -30,6 +42,7 @@ export function createInitialState(input: InitStateInput): RunState {
     phase_attempt: 0,
     started_at: now,
     updated_at: now,
+    last_progress_at: now,
     worker_stats: {
       claude: 0,
       codex: 0,
