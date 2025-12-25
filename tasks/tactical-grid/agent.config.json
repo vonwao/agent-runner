@@ -1,0 +1,45 @@
+{
+  "agent": {
+    "name": "dual-llm-orchestrator",
+    "version": "1"
+  },
+  "repo": {
+    "default_branch": "main"
+  },
+  "scope": {
+    "allowlist": ["apps/tactical-grid/**"],
+    "denylist": ["**/node_modules/**"],
+    "lockfiles": ["package-lock.json", "pnpm-lock.yaml", "yarn.lock"]
+  },
+  "verification": {
+    "cwd": "apps/tactical-grid",
+    "tier0": ["npm run typecheck"],
+    "tier1": ["npm run lint", "npm run test"],
+    "tier2": [],
+    "risk_triggers": [
+      {
+        "name": "deps",
+        "patterns": ["package.json"],
+        "tier": "tier1"
+      }
+    ],
+    "max_verify_time_per_milestone": 120
+  },
+  "workers": {
+    "codex": {
+      "bin": "codex",
+      "args": ["exec", "--full-auto", "--json"],
+      "output": "jsonl"
+    },
+    "claude": {
+      "bin": "claude",
+      "args": ["-p", "--output-format", "json", "--dangerously-skip-permissions"],
+      "output": "json"
+    }
+  },
+  "phases": {
+    "plan": "claude",
+    "implement": "codex",
+    "review": "claude"
+  }
+}

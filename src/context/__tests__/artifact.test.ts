@@ -38,6 +38,11 @@ describe('writeContextPackArtifact', () => {
         tsconfig: null,
         eslint: null,
         package_json: null
+      },
+      blockers: {
+        scope_violations: [],
+        lockfile_restrictions: false,
+        common_errors: []
       }
     };
 

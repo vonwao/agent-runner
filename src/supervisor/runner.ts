@@ -397,9 +397,11 @@ async function handleImplement(state: RunState, options: SupervisorOptions): Pro
         scope: {
           allowlist: state.scope_lock.allowlist,
           denylist: state.scope_lock.denylist
-        }
+        },
+        lockfiles: options.config.scope?.lockfiles
       },
-      references
+      references,
+      allowDeps: options.allowDeps
     });
   }
 

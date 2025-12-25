@@ -16,6 +16,7 @@ export interface ContextPack {
     tier0: string[];
     tier1: string[];
     tier2: string[];
+    cwd?: string; // Working directory for verification commands
   };
 
   // Reference files with snippets (when task says "copy pattern from X")
@@ -37,6 +38,13 @@ export interface ContextPack {
     eslint: { path: string; content: string } | null;
     package_json: { path: string; content: string } | null;
   };
+
+  // Blockers guidance - common failure patterns and how to handle
+  blockers: {
+    scope_violations: string[];
+    lockfile_restrictions: boolean;
+    common_errors: string[];
+  };
 }
 
 export interface BuildContextPackOptions {
@@ -44,6 +52,7 @@ export interface BuildContextPackOptions {
   targetRoot: string; // e.g., apps/tactical-grid
   config: {
     verification?: {
+      cwd?: string;
       tier0?: string[];
       tier1?: string[];
       tier2?: string[];
@@ -52,12 +61,15 @@ export interface BuildContextPackOptions {
       allowlist?: string[];
       denylist?: string[];
     };
+    lockfiles?: string[];
   };
   // Explicit references from task spec
   references?: Array<{
     pattern: string; // e.g., "RNG pattern", "deckbuilder config"
     hint?: string;   // e.g., "apps/deckbuilder/src/engine/rng.ts"
   }>;
+  // Allow dependency changes (affects blocker guidance)
+  allowDeps?: boolean;
 }
 
 // Known reference patterns - maps task descriptions to actual files
@@ -81,13 +93,14 @@ const KNOWN_PATTERNS: Record<string, { paths: string[]; reason: string }> = {
 };
 
 export function buildContextPack(options: BuildContextPackOptions): ContextPack {
-  const { repoRoot, targetRoot, config, references } = options;
+  const { repoRoot, targetRoot, config, references, allowDeps } = options;
 
   // 1. Extract verification commands from config (source of truth)
   const verification = {
     tier0: config.verification?.tier0 ?? [],
     tier1: config.verification?.tier1 ?? [],
-    tier2: config.verification?.tier2 ?? []
+    tier2: config.verification?.tier2 ?? [],
+    cwd: config.verification?.cwd
   };
 
   // 2. Resolve reference files
@@ -102,13 +115,57 @@ export function buildContextPack(options: BuildContextPackOptions): ContextPack 
   // 4. Find nearest config patterns
   const patterns = findNearestPatterns(repoRoot, targetRoot);
 
+  // 5. Build blockers guidance
+  const blockers = buildBlockersGuidance(config, allowDeps);
+
   return {
     version: 1,
     generated_at: new Date().toISOString(),
     verification,
     reference_files,
     scope,
-    patterns
+    patterns,
+    blockers
+  };
+}
+
+function buildBlockersGuidance(
+  config: BuildContextPackOptions['config'],
+  allowDeps?: boolean
+): ContextPack['blockers'] {
+  const scope_violations: string[] = [];
+  const common_errors: string[] = [];
+
+  // Generate scope violation warnings
+  if (config.scope?.denylist?.length) {
+    for (const pattern of config.scope.denylist) {
+      if (pattern.includes('node_modules')) {
+        scope_violations.push(`Cannot modify ${pattern} - use existing dependencies only`);
+      } else {
+        scope_violations.push(`Files matching ${pattern} are outside scope`);
+      }
+    }
+  }
+
+  // Lockfile restrictions
+  const lockfileRestrictions = !allowDeps && (config.lockfiles?.length ?? 0) > 0;
+  if (lockfileRestrictions) {
+    common_errors.push(
+      'npm install/pnpm install may fail if it modifies lockfiles - dependencies should already be installed'
+    );
+  }
+
+  // Common error patterns based on typical failures
+  common_errors.push(
+    'If verification commands fail at root, check if they should run in a subdirectory (see verification.cwd)',
+    'If tests fail due to missing dependencies, check if node_modules exists and is symlinked correctly',
+    'If lint/typecheck commands are not found, ensure package.json scripts are defined'
+  );
+
+  return {
+    scope_violations,
+    lockfile_restrictions: lockfileRestrictions,
+    common_errors
   };
 }
 
@@ -242,19 +299,41 @@ function readSnippet(filePath: string, maxLines = 150): string {
 export function formatContextPackForPrompt(pack: ContextPack): string {
   const sections: string[] = [];
 
-  // Verification commands
+  // Verification commands (most important - put first)
   sections.push('## Verification Commands (must pass)');
+  if (pack.verification.cwd) {
+    sections.push(`Working directory: ${pack.verification.cwd}`);
+  }
   if (pack.verification.tier0.length > 0) {
-    sections.push(`tier0: ${pack.verification.tier0.join(' && ')}`);
+    const prefix = pack.verification.cwd ? `cd ${pack.verification.cwd} && ` : '';
+    sections.push(`tier0: ${prefix}${pack.verification.tier0.join(' && ')}`);
   }
   if (pack.verification.tier1.length > 0) {
-    sections.push(`tier1: ${pack.verification.tier1.join(' && ')}`);
+    const prefix = pack.verification.cwd ? `cd ${pack.verification.cwd} && ` : '';
+    sections.push(`tier1: ${prefix}${pack.verification.tier1.join(' && ')}`);
   }
 
   // Scope
   sections.push('\n## Scope Constraints');
   sections.push(`allowlist: ${pack.scope.allowlist.join(', ') || '(none)'}`);
   sections.push(`denylist: ${pack.scope.denylist.join(', ') || '(none)'}`);
+
+  // Blockers guidance (critical for avoiding common failures)
+  if (pack.blockers) {
+    sections.push('\n## Known Blockers & Constraints');
+    if (pack.blockers.lockfile_restrictions) {
+      sections.push('- **Lockfiles protected**: Cannot modify package-lock.json or similar');
+    }
+    for (const violation of pack.blockers.scope_violations) {
+      sections.push(`- ${violation}`);
+    }
+    if (pack.blockers.common_errors.length > 0) {
+      sections.push('\nCommon error patterns:');
+      for (const err of pack.blockers.common_errors) {
+        sections.push(`- ${err}`);
+      }
+    }
+  }
 
   // Reference files
   if (pack.reference_files.length > 0) {
