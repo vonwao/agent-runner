@@ -1,5 +1,6 @@
 import { RunStore } from '../store/run-store.js';
 import { resolveRunId } from '../store/run-utils.js';
+import { getRunsRoot } from '../store/runs-root.js';
 import { computeKpiFromEvents } from './report.js';
 import { RunState } from '../types/schemas.js';
 import { diagnoseStop, formatStopMarkdown, DiagnosisContext, StopDiagnosisJson } from '../diagnosis/index.js';
@@ -106,6 +107,8 @@ export interface SummaryJson {
 export interface SummarizeOptions {
   /** Run ID to summarize */
   runId: string;
+  /** Target repository path */
+  repo: string;
 }
 
 /**
@@ -115,10 +118,10 @@ export interface SummarizeOptions {
  */
 export async function summarizeCommand(options: SummarizeOptions): Promise<void> {
   // Resolve 'latest' to actual run ID and validate existence
-  const resolvedRunId = resolveRunId(options.runId);
-  const runDir = path.resolve('runs', resolvedRunId);
+  const resolvedRunId = resolveRunId(options.runId, options.repo);
+  const runDir = path.join(getRunsRoot(options.repo), resolvedRunId);
 
-  const runStore = RunStore.init(resolvedRunId);
+  const runStore = RunStore.init(resolvedRunId, options.repo);
   const state = runStore.readState();
 
   // Read timeline events for KPI computation

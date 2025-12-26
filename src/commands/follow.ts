@@ -1,9 +1,11 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import readline from 'node:readline';
+import { getRunsRoot } from '../store/runs-root.js';
 
 export interface FollowOptions {
   runId: string;
+  repo: string;
 }
 
 interface TimelineEvent {
@@ -34,8 +36,8 @@ const POLL_INTERVAL_MS = 1000;
  * Find the best run to follow: prefer running runs, else latest.
  * Returns { runId, wasRunning } so caller can inform user.
  */
-export function findBestRunToFollow(): { runId: string; wasRunning: boolean } | null {
-  const runsDir = path.resolve('runs');
+export function findBestRunToFollow(repoPath: string): { runId: string; wasRunning: boolean } | null {
+  const runsDir = getRunsRoot(repoPath);
   if (!fs.existsSync(runsDir)) {
     return null;
   }
@@ -228,7 +230,7 @@ function readState(statePath: string): RunState | null {
 }
 
 export async function followCommand(options: FollowOptions): Promise<void> {
-  const runDir = path.resolve('runs', options.runId);
+  const runDir = path.join(getRunsRoot(options.repo), options.runId);
 
   if (!fs.existsSync(runDir)) {
     console.error(`Run directory not found: ${runDir}`);

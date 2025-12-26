@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { Event, RunState } from '../types/schemas.js';
 import { EnvFingerprint } from '../env/fingerprint.js';
+import { getRunsRoot } from './runs-root.js';
 
 export interface WorkerCallInfo {
   worker: 'claude' | 'codex';
@@ -23,7 +24,13 @@ export class RunStore {
     this.seqPath = path.join(runDir, 'seq.txt');
   }
 
-  static init(runId: string, rootDir = path.resolve('runs')): RunStore {
+  /**
+   * Initialize a RunStore for a new or existing run.
+   * @param runId - The run ID (timestamp format)
+   * @param repoPath - The target repository path (required)
+   */
+  static init(runId: string, repoPath: string): RunStore {
+    const rootDir = getRunsRoot(repoPath);
     const runDir = path.join(rootDir, runId);
     fs.mkdirSync(runDir, { recursive: true });
     fs.mkdirSync(path.join(runDir, 'artifacts'), { recursive: true });

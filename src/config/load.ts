@@ -6,7 +6,8 @@ export function resolveConfigPath(repoPath: string, configPath?: string): string
   if (configPath) {
     return path.resolve(configPath);
   }
-  return path.resolve(repoPath, 'agent.config.json');
+  // Default: look for config in .agent/ directory
+  return path.resolve(repoPath, '.agent', 'agent.config.json');
 }
 
 export function loadConfig(configPath: string): AgentConfig {

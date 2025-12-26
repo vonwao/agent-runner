@@ -1,3 +1,4 @@
+#!/usr/bin/env node
 import { Command } from 'commander';
 import { runCommand } from './commands/run.js';
 import { resumeCommand } from './commands/resume.js';
@@ -13,12 +14,12 @@ import { gcCommand } from './commands/gc.js';
 const program = new Command();
 
 program
-  .name('agent-run')
+  .name('agent')
   .description('Dual-LLM coding orchestrator');
 
 program
   .command('run')
-  .requiredOption('--repo <path>', 'Target repo path')
+  .option('--repo <path>', 'Target repo path (default: current directory)', '.')
   .requiredOption('--task <path>', 'Task brief file')
   .option('--time <minutes>', 'Time budget in minutes', '120')
   .option('--config <path>', 'Path to agent.config.json')
@@ -57,7 +58,7 @@ program
 
 program
   .command('guards-only')
-  .requiredOption('--repo <path>', 'Target repo path')
+  .option('--repo <path>', 'Target repo path (default: current directory)', '.')
   .requiredOption('--task <path>', 'Task brief file')
   .option('--config <path>', 'Path to agent.config.json')
   .option('--allow-deps', 'Allow lockfile changes', false)
@@ -78,6 +79,7 @@ program
 program
   .command('resume')
   .argument('<runId>', 'Run ID')
+  .option('--repo <path>', 'Target repo path (default: current directory)', '.')
   .option('--time <minutes>', 'Time budget in minutes', '120')
   .option('--max-ticks <count>', 'Max supervisor ticks (default: 50)', '50')
   .option('--allow-deps', 'Allow lockfile changes', false)
@@ -86,6 +88,7 @@ program
   .action(async (runId: string, options) => {
     await resumeCommand({
       runId,
+      repo: options.repo,
       time: Number.parseInt(options.time, 10),
       maxTicks: Number.parseInt(options.maxTicks, 10),
       allowDeps: options.allowDeps,
@@ -97,19 +100,21 @@ program
 program
   .command('status')
   .argument('<runId>', 'Run ID')
-  .action(async (runId: string) => {
-    await statusCommand({ runId });
+  .option('--repo <path>', 'Target repo path (default: current directory)', '.')
+  .action(async (runId: string, options) => {
+    await statusCommand({ runId, repo: options.repo });
   });
 
 program
   .command('report')
   .argument('<runId>', 'Run ID (or "latest")')
+  .option('--repo <path>', 'Target repo path (default: current directory)', '.')
   .option('--tail <count>', 'Tail last N events', '50')
   .option('--kpi-only', 'Show compact KPI summary only')
   .action(async (runId: string, options) => {
     let resolvedRunId = runId;
     if (runId === 'latest') {
-      const latest = findLatestRunId();
+      const latest = findLatestRunId(options.repo);
       if (!latest) {
         console.error('No runs found');
         process.exit(1);
@@ -118,6 +123,7 @@ program
     }
     await reportCommand({
       runId: resolvedRunId,
+      repo: options.repo,
       tail: Number.parseInt(options.tail, 10),
       kpiOnly: options.kpiOnly
     });
@@ -127,17 +133,18 @@ program
   .command('summarize')
   .description('Generate summary.json from run KPIs')
   .argument('<runId>', 'Run ID (or "latest")')
-  .action(async (runId: string) => {
+  .option('--repo <path>', 'Target repo path (default: current directory)', '.')
+  .action(async (runId: string, options) => {
     let resolvedRunId = runId;
     if (runId === 'latest') {
-      const latest = findLatestRunId();
+      const latest = findLatestRunId(options.repo);
       if (!latest) {
         console.error('No runs found');
         process.exit(1);
       }
       resolvedRunId = latest;
     }
-    await summarizeCommand({ runId: resolvedRunId });
+    await summarizeCommand({ runId: resolvedRunId, repo: options.repo });
   });
 
 program
@@ -145,8 +152,9 @@ program
   .description('Compare KPIs between two runs')
   .argument('<runA>', 'First run ID')
   .argument('<runB>', 'Second run ID')
-  .action(async (runA: string, runB: string) => {
-    await compareCommand({ runA, runB });
+  .option('--repo <path>', 'Target repo path (default: current directory)', '.')
+  .action(async (runA: string, runB: string, options) => {
+    await compareCommand({ runA, runB, repo: options.repo });
   });
 
 program
@@ -165,11 +173,12 @@ program
   .command('follow')
   .description('Tail run timeline and exit on termination')
   .argument('[runId]', 'Run ID (or "latest", default: latest running or latest)')
-  .action(async (runId?: string) => {
+  .option('--repo <path>', 'Target repo path (default: current directory)', '.')
+  .action(async (runId: string | undefined, options) => {
     let resolvedRunId: string;
 
     if (!runId || runId === 'latest') {
-      const best = findBestRunToFollow();
+      const best = findBestRunToFollow(options.repo);
       if (!best) {
         console.error('No runs found');
         process.exit(1);
@@ -182,16 +191,18 @@ program
       resolvedRunId = runId;
     }
 
-    await followCommand({ runId: resolvedRunId });
+    await followCommand({ runId: resolvedRunId, repo: options.repo });
   });
 
 program
   .command('gc')
   .description('Clean up old worktree directories to reclaim disk space')
+  .option('--repo <path>', 'Target repo path (default: current directory)', '.')
   .option('--dry-run', 'Preview what would be deleted without actually deleting', false)
   .option('--older-than <days>', 'Only delete worktrees older than N days', '7')
   .action(async (options) => {
     await gcCommand({
+      repo: options.repo,
       dryRun: options.dryRun,
       olderThan: Number.parseInt(options.olderThan, 10)
     });

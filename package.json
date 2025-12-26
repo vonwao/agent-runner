@@ -1,14 +1,14 @@
 {
-  "name": "dual-llm-orchestrator",
+  "name": "agent-runner",
   "version": "0.1.0",
-  "private": true,
   "type": "module",
   "bin": {
-    "agent-run": "dist/cli.js"
+    "agent": "dist/cli.js"
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",
-    "dev": "ts-node src/cli.ts",
+    "prepare": "npm run build",
+    "dev": "node --loader ts-node/esm src/cli.ts",
     "start": "node dist/cli.js",
     "test": "vitest run",
     "test:watch": "vitest",

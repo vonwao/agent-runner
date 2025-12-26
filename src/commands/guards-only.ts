@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { loadConfig, resolveConfigPath } from '../config/load.js';
 import { RunStore } from '../store/run-store.js';
+import { getRunsRoot } from '../store/runs-root.js';
 import { buildMilestonesFromTask } from '../supervisor/planner.js';
 import { runPreflight } from './preflight.js';
 
@@ -70,7 +71,7 @@ export async function guardsOnlyCommand(
 
   const runId = makeRunId();
   const slug = slugFromTask(taskPath);
-  const runDir = path.resolve('runs', runId);
+  const runDir = path.join(getRunsRoot(repoPath), runId);
 
   const preflight = await runPreflight({
     repoPath,
@@ -84,7 +85,7 @@ export async function guardsOnlyCommand(
   });
 
   if (!options.noWrite) {
-    const runStore = RunStore.init(runId);
+    const runStore = RunStore.init(runId, repoPath);
     runStore.writeConfigSnapshot(config);
     runStore.writeArtifact('task.md', taskText);
     runStore.appendEvent({

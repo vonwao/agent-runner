@@ -1,9 +1,11 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import { getRunsRoot } from '../store/runs-root.js';
 
 export interface GcOptions {
   dryRun: boolean;
   olderThan: number; // days
+  repo: string;
 }
 
 interface RunInfo {
@@ -113,7 +115,7 @@ function scanRuns(runsDir: string): RunInfo[] {
 }
 
 export async function gcCommand(options: GcOptions): Promise<void> {
-  const runsDir = path.resolve('runs');
+  const runsDir = getRunsRoot(options.repo);
   const runs = scanRuns(runsDir);
 
   // Calculate totals

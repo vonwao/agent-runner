@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { loadConfig, resolveConfigPath } from '../config/load.js';
 import { RunStore } from '../store/run-store.js';
+import { getRunsRoot } from '../store/runs-root.js';
 import { git, gitOptional } from '../repo/git.js';
 import { createWorktree, WorktreeInfo } from '../repo/worktree.js';
 import { buildMilestonesFromTask } from '../supervisor/planner.js';
@@ -211,7 +212,7 @@ export async function runCommand(options: RunOptions): Promise<void> {
 
   const runId = makeRunId();
   const slug = slugFromTask(taskPath);
-  const runDir = path.resolve('runs', runId);
+  const runDir = path.join(getRunsRoot(repoPath), runId);
   const milestones = buildMilestonesFromTask(taskText);
   const milestoneRiskLevel = milestones[0]?.risk_level ?? 'medium';
 
@@ -249,7 +250,7 @@ export async function runCommand(options: RunOptions): Promise<void> {
     skipPing: false
   });
 
-  const runStore = options.noWrite ? null : RunStore.init(runId);
+  const runStore = options.noWrite ? null : RunStore.init(runId, repoPath);
 
   if (runStore) {
     // Write config snapshot with worktree info if enabled

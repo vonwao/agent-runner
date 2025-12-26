@@ -2,10 +2,12 @@ import fs from 'node:fs';
 import path from 'node:path';
 import readline from 'node:readline';
 import { computeKpiFromEvents, DerivedKpi, PhaseKpi } from './report.js';
+import { getRunsRoot } from '../store/runs-root.js';
 
 export interface CompareOptions {
   runA: string;
   runB: string;
+  repo: string;
 }
 
 interface CompareResult {
@@ -20,16 +22,16 @@ export async function compareCommand(options: CompareOptions): Promise<void> {
 }
 
 async function loadComparison(options: CompareOptions): Promise<CompareResult> {
-  const kpiA = await loadKpiForRun(options.runA);
-  const kpiB = await loadKpiForRun(options.runB);
+  const kpiA = await loadKpiForRun(options.runA, options.repo);
+  const kpiB = await loadKpiForRun(options.runB, options.repo);
   return {
     runA: { id: options.runA, kpi: kpiA },
     runB: { id: options.runB, kpi: kpiB }
   };
 }
 
-async function loadKpiForRun(runId: string): Promise<DerivedKpi> {
-  const runDir = path.resolve('runs', runId);
+async function loadKpiForRun(runId: string, repoPath: string): Promise<DerivedKpi> {
+  const runDir = path.join(getRunsRoot(repoPath), runId);
   if (!fs.existsSync(runDir)) {
     throw new Error(`Run not found: ${runDir}`);
   }

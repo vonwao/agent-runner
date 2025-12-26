@@ -15,6 +15,7 @@ export interface ResumeOptions {
   allowDeps: boolean;
   config?: string;
   force: boolean;
+  repo: string;
 }
 
 /**
@@ -64,7 +65,7 @@ export async function resumeCommand(options: ResumeOptions): Promise<void> {
   // Log effective configuration for transparency
   console.log(formatResumeConfig(options));
 
-  const runStore = RunStore.init(options.runId);
+  const runStore = RunStore.init(options.runId, options.repo);
   let state: RunState;
   try {
     state = runStore.readState();

@@ -4,6 +4,7 @@ import readline from 'node:readline';
 import { RunState } from '../types/schemas.js';
 import { readContextPackArtifact, formatContextPackStatus } from '../context/index.js';
 import { findLatestRunId } from '../store/run-utils.js';
+import { getRunsRoot } from '../store/runs-root.js';
 
 // Re-export for backward compatibility with cli.ts
 export { findLatestRunId };
@@ -12,6 +13,7 @@ export interface ReportOptions {
   runId: string;
   tail: number;
   kpiOnly?: boolean;
+  repo: string;
 }
 
 // KPI types - exported for testing (Phase 1: no boot chain touches)
@@ -58,7 +60,7 @@ interface TimelineScanResult {
 }
 
 export async function reportCommand(options: ReportOptions): Promise<void> {
-  const runDir = path.resolve('runs', options.runId);
+  const runDir = path.join(getRunsRoot(options.repo), options.runId);
   if (!fs.existsSync(runDir)) {
     throw new Error(`${missingRunMessage(runDir)}`);
   }
