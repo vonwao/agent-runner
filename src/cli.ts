@@ -32,6 +32,7 @@ program
   .option('--skip-doctor', 'Skip worker health checks', false)
   .option('--fresh-target', 'Wipe target root before starting', false)
   .option('--worktree', 'Create isolated git worktree for this run', false)
+  .option('--fast', 'Fast path: skip PLAN and REVIEW phases for small tasks', false)
   .action(async (options) => {
     const noBranch = options.branch === false;
     const noWrite = options.write === false;
@@ -49,7 +50,8 @@ program
       maxTicks: Number.parseInt(options.maxTicks, 10),
       skipDoctor: options.skipDoctor,
       freshTarget: options.freshTarget,
-      worktree: options.worktree
+      worktree: options.worktree,
+      fast: options.fast
     });
   });
 

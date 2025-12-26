@@ -26,6 +26,7 @@ export interface RunOptions {
   skipDoctor: boolean;
   freshTarget: boolean;
   worktree: boolean;
+  fast: boolean;
 }
 
 function makeRunId(): string {
@@ -97,6 +98,7 @@ function formatEffectiveConfig(options: RunOptions): string {
     `time=${options.time}min`,
     `ticks=${options.maxTicks}`,
     `worktree=${options.worktree ? 'on' : 'off'}`,
+    `fast=${options.fast ? 'on' : 'off'}`,
     `context_pack=${contextPack}`,
     `allow_deps=${options.allowDeps ? 'yes' : 'no'}`
   ];
@@ -429,7 +431,8 @@ export async function runCommand(options: RunOptions): Promise<void> {
       config,
       timeBudgetMinutes: options.time,
       maxTicks: options.maxTicks,
-      allowDeps: options.allowDeps
+      allowDeps: options.allowDeps,
+      fast: options.fast
     });
   }
 

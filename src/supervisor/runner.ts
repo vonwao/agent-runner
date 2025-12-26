@@ -75,6 +75,8 @@ export interface SupervisorOptions {
   maxTicks: number;
   /** Whether lockfile changes are permitted */
   allowDeps: boolean;
+  /** Fast path mode: skip PLAN and REVIEW phases */
+  fast?: boolean;
 }
 
 const DEFAULT_STOP_MEMO = [
@@ -366,6 +368,10 @@ export async function runSupervisorLoop(options: SupervisorOptions): Promise<voi
 /**
  * Dispatches to the appropriate phase handler based on current state.
  * Returns updated state after phase execution.
+ *
+ * Fast path mode (--fast):
+ * - INIT → IMPLEMENT (skip PLAN)
+ * - VERIFY → CHECKPOINT (skip REVIEW)
  */
 async function runPhase(state: RunState, options: SupervisorOptions): Promise<RunState> {
   switch (state.phase) {
@@ -382,6 +388,15 @@ async function runPhase(state: RunState, options: SupervisorOptions): Promise<Ru
     case 'FINALIZE':
       return handleFinalize(state, options);
     case 'INIT':
+      // Fast path: skip PLAN, go directly to IMPLEMENT
+      if (options.fast) {
+        options.runStore.appendEvent({
+          type: 'fast_path_skip',
+          source: 'supervisor',
+          payload: { skipped_phase: 'PLAN', reason: 'fast_mode' }
+        });
+        return updatePhase(state, 'IMPLEMENT');
+      }
       return updatePhase(state, 'PLAN');
     default:
       return state;
@@ -782,6 +797,16 @@ async function handleVerify(state: RunState, options: SupervisorOptions): Promis
     last_verify_failure: undefined,
     last_verification_evidence: verificationEvidence
   };
+
+  // Fast path: skip REVIEW, go directly to CHECKPOINT
+  if (options.fast) {
+    options.runStore.appendEvent({
+      type: 'fast_path_skip',
+      source: 'supervisor',
+      payload: { skipped_phase: 'REVIEW', reason: 'fast_mode' }
+    });
+    return updatePhase(cleared, 'CHECKPOINT');
+  }
 
   return updatePhase(cleared, 'REVIEW');
 }
