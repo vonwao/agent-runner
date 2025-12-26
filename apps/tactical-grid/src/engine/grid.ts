@@ -38,3 +38,20 @@ export function isValidMoveTarget(
 
   return getUnitAt(units, target) === undefined;
 }
+
+export function getValidMoveTargets(
+  unit: Unit,
+  grid: { width: number; height: number },
+  units: Unit[]
+): Position[] {
+  const targets: Position[] = [];
+  for (let x = 0; x < grid.width; x++) {
+    for (let y = 0; y < grid.height; y++) {
+      const target = { x, y };
+      if (distance(unit.position, target) <= unit.moveRange && isValidMoveTarget(unit, target, grid, units)) {
+        targets.push(target);
+      }
+    }
+  }
+  return targets;
+}

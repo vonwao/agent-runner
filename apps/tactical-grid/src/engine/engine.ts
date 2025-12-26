@@ -2,6 +2,29 @@ import { isValidMoveTarget } from "./grid";
 import { isValidAttackTarget, resolveCombat } from "./combat";
 import type { Action, GameState, Position, Unit } from "./types";
 
+export function createUnit(params: {
+  id: string;
+  x: number;
+  y: number;
+  team: "player" | "enemy";
+  hp?: number;
+  attack?: number;
+  moveRange?: number;
+  attackRange?: number;
+}): Unit {
+  const hp = params.hp ?? 10;
+  return {
+    id: params.id,
+    position: { x: params.x, y: params.y },
+    hp,
+    maxHp: hp,
+    attack: params.attack ?? 3,
+    moveRange: params.moveRange ?? 3,
+    attackRange: params.attackRange ?? 1,
+    team: params.team,
+  };
+}
+
 function updateUnit(units: Unit[], updated: Unit): Unit[] {
   return units.map((unit) => (unit.id === updated.id ? updated : unit));
 }
