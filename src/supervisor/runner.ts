@@ -6,7 +6,7 @@ import { AgentConfig } from '../config/schema.js';
 import { git } from '../repo/git.js';
 import { listChangedFiles } from '../repo/context.js';
 import { RunStore, WorkerCallInfo } from '../store/run-store.js';
-import { Milestone, RunState, WorkerStats } from '../types/schemas.js';
+import { Milestone, RunState, WorkerStats, VerificationEvidence, CommandResult } from '../types/schemas.js';
 import { buildImplementPrompt, buildPlanPrompt, buildReviewPrompt } from '../workers/prompts.js';
 import {
   buildContextPack,
@@ -655,6 +655,11 @@ async function handleVerify(state: RunState, options: SupervisorOptions): Promis
     ? path.join(options.repoPath, options.config.verification.cwd)
     : options.repoPath;
 
+  // Track all commands required and run for evidence
+  const allCommandsRequired: string[] = [];
+  const allCommandsRun: Array<{ command: string; exit_code: number }> = [];
+  const tiersRun: Array<'tier0' | 'tier1' | 'tier2'> = [];
+
   for (const tier of selection.tiers) {
     const elapsed = (Date.now() - start) / 1000;
     const remaining = options.config.verification.max_verify_time_per_milestone - elapsed;
@@ -664,10 +669,14 @@ async function handleVerify(state: RunState, options: SupervisorOptions): Promis
     }
 
     const commands = commandsForTier(options.config.verification, tier);
+    allCommandsRequired.push(...commands);
+
     if (commands.length === 0) {
       results.push(`Tier ${tier}: no commands configured.`);
       continue;
     }
+
+    tiersRun.push(tier);
 
     const verifyResult = await runVerification(
       tier,
@@ -675,6 +684,15 @@ async function handleVerify(state: RunState, options: SupervisorOptions): Promis
       verifyCwd,
       Math.floor(remaining)
     );
+
+    // Track individual command results
+    for (const cmdResult of verifyResult.command_results) {
+      allCommandsRun.push({
+        command: cmdResult.command,
+        exit_code: cmdResult.exit_code
+      });
+    }
+
     const artifactName = `tests_${tier}.log`;
     options.runStore.writeArtifact(artifactName, verifyResult.output);
     results.push(`Tier ${tier}: ${verifyResult.ok ? 'ok' : 'failed'}`);
@@ -686,6 +704,7 @@ async function handleVerify(state: RunState, options: SupervisorOptions): Promis
         tier,
         ok: verifyResult.ok,
         commands,
+        command_results: verifyResult.command_results,
         duration_ms: verifyResult.duration_ms
       }
     });
@@ -735,19 +754,33 @@ async function handleVerify(state: RunState, options: SupervisorOptions): Promis
     }
   }
 
+  // Compute missing commands (required but not run)
+  const commandsRunSet = new Set(allCommandsRun.map(c => c.command));
+  const commandsMissing = allCommandsRequired.filter(c => !commandsRunSet.has(c));
+
+  // Build verification evidence for REVIEW phase
+  const verificationEvidence: VerificationEvidence = {
+    commands_required: allCommandsRequired,
+    commands_run: allCommandsRun,
+    commands_missing: commandsMissing,
+    tiers_run: tiersRun
+  };
+
   options.runStore.appendEvent({
     type: 'verify_complete',
     source: 'verifier',
     payload: {
       results,
-      tier_reasons: selection.reasons
+      tier_reasons: selection.reasons,
+      verification_evidence: verificationEvidence
     }
   });
 
-  // Clear verify failure on success
+  // Clear verify failure on success and store verification evidence
   const cleared: RunState = {
     ...state,
-    last_verify_failure: undefined
+    last_verify_failure: undefined,
+    last_verification_evidence: verificationEvidence
   };
 
   return updatePhase(cleared, 'REVIEW');
@@ -786,11 +819,28 @@ async function handleReview(state: RunState, options: SupervisorOptions): Promis
     ? fs.readFileSync(verifyLogPath, 'utf-8')
     : '';
 
+  // Build verification summary for evidence gating
+  const filesExpected = milestone.files_expected ?? [];
+  const filesExist = filesExpected.map(f => ({
+    path: f,
+    exists: fs.existsSync(path.join(options.repoPath, f))
+  }));
+
+  const verificationEvidence = state.last_verification_evidence;
+  const verificationSummary = {
+    commands_required: verificationEvidence?.commands_required ?? [],
+    commands_run: verificationEvidence?.commands_run ?? [],
+    commands_missing: verificationEvidence?.commands_missing ?? ['(no verification evidence available)'],
+    files_expected: filesExpected,
+    files_exist: filesExist
+  };
+
   const combinedDiff = [diffSummary.stdout.trim(), '', truncatedDiff].filter(Boolean).join('\n');
   const prompt = buildReviewPrompt({
     milestone,
     diffSummary: combinedDiff,
-    verificationOutput
+    verificationOutput,
+    verificationSummary
   });
 
   const reviewWorker = options.config.phases.review;

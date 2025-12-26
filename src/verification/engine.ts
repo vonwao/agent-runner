@@ -1,5 +1,5 @@
 import { execa } from 'execa';
-import { VerifyResult, VerificationTier } from '../types/schemas.js';
+import { VerifyResult, VerificationTier, CommandResult } from '../types/schemas.js';
 
 export async function runVerification(
   tier: VerificationTier,
@@ -10,6 +10,7 @@ export async function runVerification(
   const started = Date.now();
   let output = '';
   let ok = true;
+  const commandResults: CommandResult[] = [];
 
   for (const command of commands) {
     try {
@@ -19,16 +20,29 @@ export async function runVerification(
         timeout: timeoutSeconds * 1000,
         all: true
       });
-      output += result.all ? `${result.all}\n` : '';
+      const cmdOutput = result.all ? `${result.all}\n` : '';
+      output += cmdOutput;
+      commandResults.push({
+        command,
+        exit_code: 0,
+        output: cmdOutput
+      });
     } catch (error) {
       ok = false;
-      const errorOutput =
-        typeof (error as { all?: string }).all === 'string'
-          ? (error as { all?: string }).all
+      const errWithCode = error as { exitCode?: number; all?: string };
+      const exitCode: number = typeof errWithCode.exitCode === 'number' ? errWithCode.exitCode : 1;
+      const errorOutput: string =
+        typeof errWithCode.all === 'string'
+          ? errWithCode.all
           : error instanceof Error
             ? error.message
             : 'Verification command failed';
       output += `${errorOutput}\n`;
+      commandResults.push({
+        command,
+        exit_code: exitCode,
+        output: errorOutput
+      });
       break;
     }
   }
@@ -36,6 +50,7 @@ export async function runVerification(
   return {
     tier,
     commands,
+    command_results: commandResults,
     ok,
     duration_ms: Date.now() - started,
     output

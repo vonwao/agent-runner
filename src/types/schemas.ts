@@ -39,6 +39,13 @@ export interface WorkerStats {
   };
 }
 
+export interface VerificationEvidence {
+  commands_required: string[];
+  commands_run: Array<{ command: string; exit_code: number }>;
+  commands_missing: string[];
+  tiers_run: VerificationTier[];
+}
+
 export interface RunState {
   run_id: string;
   repo_path: string;
@@ -56,6 +63,7 @@ export interface RunState {
   retries: number;
   milestone_retries: number;
   last_verify_failure?: VerifyFailure;
+  last_verification_evidence?: VerificationEvidence;
   checkpoint_commit_sha?: string;
   last_successful_phase?: Phase;
   resume_token?: string;
@@ -110,9 +118,16 @@ export interface VerificationPolicy {
   max_verify_time_per_milestone: number;
 }
 
+export interface CommandResult {
+  command: string;
+  exit_code: number;
+  output: string;
+}
+
 export interface VerifyResult {
   tier: VerificationTier;
   commands: string[];
+  command_results: CommandResult[];
   ok: boolean;
   duration_ms: number;
   output: string;

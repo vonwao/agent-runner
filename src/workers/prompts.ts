@@ -99,16 +99,59 @@ export function buildImplementPrompt(input: {
   return lines.join('\n');
 }
 
+export interface VerificationSummary {
+  commands_required: string[];
+  commands_run: Array<{ command: string; exit_code: number }>;
+  commands_missing: string[];
+  files_expected: string[];
+  files_exist: Array<{ path: string; exists: boolean }>;
+}
+
 export function buildReviewPrompt(input: {
   milestone: Milestone;
   diffSummary: string;
   verificationOutput: string;
+  verificationSummary?: VerificationSummary;
 }): string {
   const template = loadTemplate('reviewer.md');
   const filesExpected = input.milestone.files_expected ?? [];
+
+  // Build verification summary section
+  let verificationSummaryText = '';
+  if (input.verificationSummary) {
+    verificationSummaryText = [
+      '',
+      '## Verification Summary (MUST CHECK)',
+      '',
+      '```json',
+      JSON.stringify(input.verificationSummary, null, 2),
+      '```',
+      ''
+    ].join('\n');
+  } else {
+    // No summary provided - reviewer must request_changes
+    verificationSummaryText = [
+      '',
+      '## Verification Summary (MUST CHECK)',
+      '',
+      '```json',
+      JSON.stringify({
+        commands_required: ['(not provided)'],
+        commands_run: [],
+        commands_missing: ['(verification summary not available)'],
+        files_expected: filesExpected,
+        files_exist: filesExpected.map(f => ({ path: f, exists: '(not checked)' }))
+      }, null, 2),
+      '```',
+      '',
+      '⚠️ WARNING: Verification summary not available. You MUST request_changes.',
+      ''
+    ].join('\n');
+  }
+
   return [
     template,
-    '',
+    verificationSummaryText,
     `Milestone goal: ${input.milestone.goal}`,
     `Files expected: ${filesExpected.length > 0 ? filesExpected.join(', ') : '(infer from goal)'}`,
     `Done checks: ${input.milestone.done_checks.join('; ')}`,
