@@ -1,9 +1,15 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { Milestone } from '../types/schemas.js';
 
+// Get the directory of this module (works in ESM)
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
 function loadTemplate(name: string): string {
-  const target = path.resolve('templates', 'prompts', name);
+  // Resolve relative to the agent-framework's templates directory, not CWD
+  const target = path.resolve(__dirname, '..', '..', 'templates', 'prompts', name);
   return fs.readFileSync(target, 'utf-8');
 }
 
