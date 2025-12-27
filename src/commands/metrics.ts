@@ -7,9 +7,16 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { getRunsRoot, getOrchestrationsRoot } from '../store/runs-root.js';
 import { RunState } from '../types/schemas.js';
 import { OrchestratorState } from '../orchestrator/types.js';
+
+// Get agent version from package.json
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const packageJsonPath = path.resolve(__dirname, '../../package.json');
+const packageJson = JSON.parse(fs.readFileSync(packageJsonPath, 'utf-8'));
+const AGENT_VERSION = packageJson.version as string;
 
 export interface MetricsOptions {
   repo: string;
@@ -21,12 +28,16 @@ export interface MetricsOptions {
  * Aggregated metrics output.
  */
 export interface AggregatedMetrics {
-  version: 1;
+  schema_version: 1;
+  agent_version: string;
+  repo_root: string;
   collected_at: string;
   period: {
     days: number;
     from: string | null;
     to: string;
+    runs_considered: number;
+    runs_filtered_out: number;
   };
   runs: {
     total: number;
@@ -109,14 +120,21 @@ export function collectMetrics(repoPath: string, days: number = 30): AggregatedM
   const runsRoot = getRunsRoot(repoPath);
   const orchRoot = getOrchestrationsRoot(repoPath);
 
+  // Track filtering
+  let runsFilteredOut = 0;
+
   // Initialize counters
   const metrics: AggregatedMetrics = {
-    version: 1,
+    schema_version: 1,
+    agent_version: AGENT_VERSION,
+    repo_root: path.resolve(repoPath),
     collected_at: now.toISOString(),
     period: {
       days,
       from: cutoffDate.toISOString(),
-      to: now.toISOString()
+      to: now.toISOString(),
+      runs_considered: 0,
+      runs_filtered_out: 0
     },
     runs: {
       total: 0,
@@ -163,7 +181,10 @@ export function collectMetrics(repoPath: string, days: number = 30): AggregatedM
 
     for (const runId of runDirs) {
       const timestamp = parseRunTimestamp(runId);
-      if (!timestamp || timestamp < cutoffDate) continue;
+      if (!timestamp || timestamp < cutoffDate) {
+        runsFilteredOut++;
+        continue;
+      }
 
       if (!oldestRun || timestamp < oldestRun) {
         oldestRun = timestamp;
@@ -218,11 +239,16 @@ export function collectMetrics(repoPath: string, days: number = 30): AggregatedM
     }
   }
 
+  // Set period filtering counts
+  metrics.period.runs_considered = metrics.runs.total;
+  metrics.period.runs_filtered_out = runsFilteredOut;
+
   // Compute derived run metrics
   if (metrics.runs.total > 0) {
+    // Use float with 1 decimal place for success_rate
     metrics.runs.success_rate = Math.round(
-      (metrics.runs.complete / metrics.runs.total) * 100
-    );
+      (metrics.runs.complete / metrics.runs.total) * 1000
+    ) / 10;
     metrics.milestones.avg_per_run = Math.round(
       (metrics.milestones.total_completed / metrics.runs.total) * 10
     ) / 10;
@@ -279,9 +305,10 @@ export function collectMetrics(repoPath: string, days: number = 30): AggregatedM
 
   // Compute derived orchestration metrics
   if (metrics.orchestrations.total > 0) {
+    // Use float with 1 decimal place for success_rate
     metrics.orchestrations.success_rate = Math.round(
-      (metrics.orchestrations.complete / metrics.orchestrations.total) * 100
-    );
+      (metrics.orchestrations.complete / metrics.orchestrations.total) * 1000
+    ) / 10;
   }
 
   return metrics;
@@ -298,9 +325,14 @@ function formatMetrics(metrics: AggregatedMetrics): string {
   lines.push('='.repeat(60));
   lines.push('');
 
+  lines.push(`Agent: v${metrics.agent_version} (schema v${metrics.schema_version})`);
+  lines.push(`Repo: ${metrics.repo_root}`);
+  lines.push('');
+
   lines.push(`Period: ${metrics.period.days} days`);
   lines.push(`From: ${metrics.period.from ?? 'N/A'}`);
   lines.push(`To: ${metrics.period.to}`);
+  lines.push(`Runs considered: ${metrics.period.runs_considered} (${metrics.period.runs_filtered_out} filtered out)`);
   lines.push('');
 
   lines.push('RUNS');
