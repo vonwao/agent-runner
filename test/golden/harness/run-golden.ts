@@ -31,6 +31,20 @@ interface ScenarioHooks {
 }
 
 /**
+ * Scenario-specific configuration.
+ */
+interface ScenarioConfig {
+  /** Mock worker mode (AGENT_MOCK_WORKER value) */
+  mock_worker_mode?: string;
+  /** Collision policy override */
+  collision_policy?: 'serialize' | 'force' | 'fail';
+  /** Additional CLI args */
+  extra_args?: string[];
+  /** Environment variables to set */
+  env?: Record<string, string>;
+}
+
+/**
  * Run a single scenario.
  */
 async function runScenario(
@@ -57,6 +71,25 @@ async function runScenario(
       ? JSON.parse(fs.readFileSync(scenarioPaths.hooks, 'utf-8'))
       : {};
 
+    // Load scenario config if present
+    const config: ScenarioConfig = fs.existsSync(scenarioPaths.config)
+      ? JSON.parse(fs.readFileSync(scenarioPaths.config, 'utf-8'))
+      : {};
+
+    // Set mock worker mode if specified
+    if (config.mock_worker_mode) {
+      process.env.AGENT_MOCK_WORKER = config.mock_worker_mode;
+      if (options.verbose) console.log(`  Mock worker: ${config.mock_worker_mode}`);
+    }
+
+    // Set additional environment variables if specified
+    if (config.env) {
+      for (const [key, value] of Object.entries(config.env)) {
+        process.env[key] = value;
+        if (options.verbose) console.log(`  Env: ${key}=${value}`);
+      }
+    }
+
     let finalExitCode = 0;
 
     // Special handling for crash-resume scenario
@@ -64,7 +97,7 @@ async function runScenario(
       finalExitCode = await runCrashResumeScenario(repoPath, hooks, options);
     } else {
       // Standard scenario: run orchestrate and wait
-      finalExitCode = await runStandardScenario(repoPath, options);
+      finalExitCode = await runStandardScenario(repoPath, config, options);
     }
 
     // Load expectations and run assertions
@@ -105,12 +138,33 @@ async function runScenario(
  */
 async function runStandardScenario(
   repoPath: string,
+  config: ScenarioConfig,
   options: { verbose: boolean }
 ): Promise<number> {
+  // Build command args
+  const args = [
+    'orchestrate', 'run',
+    '--config', 'tracks.yaml',
+    '--repo', '.',
+    '--time', '5',
+    '--max-ticks', '10',
+    '--fast'
+  ];
+
+  // Add collision policy if specified
+  if (config.collision_policy) {
+    args.push('--collision-policy', config.collision_policy);
+  }
+
+  // Add extra args if specified
+  if (config.extra_args) {
+    args.push(...config.extra_args);
+  }
+
   // Run orchestrate with --fast to skip PLAN/REVIEW phases (works with mock workers)
   if (options.verbose) console.log(`  Running orchestrate...`);
   const orchestrateResult = await runAgent(
-    ['orchestrate', 'run', '--config', 'tracks.yaml', '--repo', '.', '--time', '5', '--max-ticks', '10', '--fast'],
+    args,
     repoPath,
     { timeout: 120000 }
   );

@@ -28,6 +28,7 @@ import {
 import {
   getActiveRuns,
   checkFileCollisions,
+  checkAllowlistOverlaps,
   ActiveRun
 } from '../supervisor/collision.js';
 import { getRunsRoot, getOrchestrationsRoot, getLegacyOrchestrationsRoot } from '../store/runs-root.js';
@@ -157,6 +158,7 @@ function getNextStep(track: Track): Step | null {
 
 /**
  * Check if a track can be launched given current file claims.
+ * Uses allowlist overlap detection to prevent parallel runs on same files.
  */
 function checkTrackCollision(
   track: Track,
@@ -165,31 +167,51 @@ function checkTrackCollision(
   repoPath: string
 ): { ok: boolean; collidingRuns?: string[]; collidingFiles?: string[] } {
   // Get the allowlist for this step
-  // First check step-level, then we'd need task-level from config
-  // For now, we rely on the run's post-PLAN collision check
-  // This is a pre-launch allowlist overlap check
+  const stepAllowlist = step.allowlist ?? [];
 
-  // Get active runs (both from orchestrator and external)
-  const externalRuns = getActiveRuns(repoPath);
+  // If no allowlist defined, can't check for collisions
+  if (stepAllowlist.length === 0) {
+    return { ok: true };
+  }
+
+  // Build pseudo-ActiveRuns from currently running orchestrator tracks
   const orchestratorRuns: ActiveRun[] = [];
 
-  // Add our own active runs
   for (const [trackId, runId] of Object.entries(state.active_runs)) {
     if (trackId === track.id) continue; // Don't check against self
 
     const activeTrack = state.tracks.find((t) => t.id === trackId);
     if (!activeTrack) continue;
 
-    const activeStep = getNextStep(activeTrack);
+    // Get the current step of the active track
+    const activeStep = activeTrack.steps[activeTrack.current_step];
     if (!activeStep) continue;
 
     // Build a pseudo-ActiveRun for collision checking
-    // We'd need the files_expected from the running step
-    // For MVP, we'll rely on the run-level collision check
+    orchestratorRuns.push({
+      runId,
+      phase: 'IMPLEMENT', // Assume running
+      allowlist: activeStep.allowlist ?? [],
+      predictedTouchFiles: [], // We don't have files_expected yet
+      updatedAt: state.started_at ?? ''
+    });
   }
 
-  // For MVP, return ok=true and let the individual runs handle collision
-  // A more sophisticated version would track files_expected per run
+  // Also check external active runs
+  const externalRuns = getActiveRuns(repoPath);
+  const allActiveRuns = [...orchestratorRuns, ...externalRuns];
+
+  // Check for allowlist overlaps
+  const overlaps = checkAllowlistOverlaps(stepAllowlist, allActiveRuns);
+
+  if (overlaps.length > 0) {
+    return {
+      ok: false,
+      collidingRuns: overlaps.map(o => o.runId),
+      collidingFiles: overlaps.flatMap(o => o.overlappingPatterns)
+    };
+  }
+
   return { ok: true };
 }
 

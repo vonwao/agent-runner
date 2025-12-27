@@ -13,6 +13,7 @@ import { gcCommand } from './commands/gc.js';
 import { waitCommand, findLatestRunId as findLatestRunIdForWait } from './commands/wait.js';
 import { orchestrateCommand, resumeOrchestrationCommand, waitOrchestrationCommand } from './commands/orchestrate.js';
 import { pathsCommand } from './commands/paths.js';
+import { metricsCommand } from './commands/metrics.js';
 import { CollisionPolicy } from './orchestrator/types.js';
 
 const program = new Command();
@@ -203,6 +204,20 @@ program
   });
 
 program
+  .command('metrics')
+  .description('Show aggregated metrics across all runs and orchestrations')
+  .option('--repo <path>', 'Target repo path', '.')
+  .option('--days <n>', 'Number of days to aggregate (default: 30)', '30')
+  .option('--json', 'Output JSON format', false)
+  .action(async (options) => {
+    await metricsCommand({
+      repo: options.repo,
+      days: parseInt(options.days, 10),
+      json: options.json
+    });
+  });
+
+program
   .command('follow')
   .description('Tail run timeline and exit on termination')
   .argument('[runId]', 'Run ID (or "latest", default: latest running or latest)')
@@ -293,6 +308,7 @@ orchestrateCmd
   .option('--allow-deps', 'Allow lockfile changes', false)
   .option('--worktree', 'Create isolated git worktree for each run', false)
   .option('--fast', 'Fast path: skip PLAN and REVIEW phases', false)
+  .option('--auto-resume', 'Auto-resume runs on transient failures', false)
   .option('--dry-run', 'Show planned execution without running', false)
   .action(async (options) => {
     const collisionPolicy = options.collisionPolicy as CollisionPolicy;
@@ -311,6 +327,7 @@ orchestrateCmd
       allowDeps: options.allowDeps,
       worktree: options.worktree,
       fast: options.fast,
+      autoResume: options.autoResume,
       dryRun: options.dryRun
     });
   });

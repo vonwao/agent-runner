@@ -100,6 +100,7 @@ async function launchRun(
     fast: boolean;
     forceParallel: boolean;
     skipDoctor?: boolean;
+    autoResume?: boolean;
   }
 ): Promise<{ runId: string; runDir: string } | { error: string }> {
   const args = [
@@ -116,6 +117,7 @@ async function launchRun(
   if (options.fast) args.push('--fast');
   if (options.forceParallel) args.push('--force-parallel');
   if (options.skipDoctor) args.push('--skip-doctor');
+  if (options.autoResume) args.push('--auto-resume');
   const result = await runAgentCommand(args, repoPath);
 
   if (result.exitCode !== 0 && !result.stdout.includes('"run_id"')) {
@@ -289,7 +291,8 @@ export async function orchestrateCommand(options: OrchestrateOptions): Promise<v
           allowDeps: options.allowDeps,
           worktree: options.worktree,
           fast: options.fast,
-          forceParallel: options.collisionPolicy === 'force'
+          forceParallel: options.collisionPolicy === 'force',
+          autoResume: options.autoResume
         });
 
         if ('error' in launchResult) {

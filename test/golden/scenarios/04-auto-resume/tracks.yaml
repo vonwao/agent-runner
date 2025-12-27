@@ -1,0 +1,12 @@
+# Scenario 04: Auto-resume path
+# Tests: worker_call_timeout → auto-resume → complete
+#
+# Uses AGENT_MOCK_WORKER=timeout_once_then_ok
+# First worker call times out, triggers auto-resume, then succeeds
+
+tracks:
+  - name: single
+    steps:
+      - task: tasks/one.md
+        allowlist:
+          - src/auto-resume-test.ts

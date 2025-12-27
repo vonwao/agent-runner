@@ -160,6 +160,8 @@ export interface OrchestrateOptions {
   worktree: boolean;
   /** Fast mode (skip PLAN/REVIEW) */
   fast: boolean;
+  /** Auto-resume runs on transient failures */
+  autoResume?: boolean;
   /** Dry run - plan but don't execute */
   dryRun: boolean;
 }

@@ -149,12 +149,13 @@ export function runAgent(
   options: { timeout?: number; env?: Record<string, string> } = {}
 ): Promise<ProcessResult> {
   // Use npx to run the local agent with mock worker enabled and doctor skipped
+  // If AGENT_MOCK_WORKER is already set in process.env (from scenario config), don't override it
   return runCommand('npx', ['agent', ...args], {
     cwd: repoPath,
     timeout: options.timeout,
     env: {
       ...process.env,
-      AGENT_MOCK_WORKER: 'delay_5s',
+      AGENT_MOCK_WORKER: process.env.AGENT_MOCK_WORKER ?? 'delay_5s',
       AGENT_SKIP_DOCTOR: '1',
       ...options.env
     }
@@ -169,11 +170,12 @@ export function spawnAgent(
   repoPath: string,
   options: { env?: Record<string, string> } = {}
 ): ChildProcess {
+  // If AGENT_MOCK_WORKER is already set in process.env (from scenario config), don't override it
   return spawnBackground('npx', ['agent', ...args], {
     cwd: repoPath,
     env: {
       ...process.env,
-      AGENT_MOCK_WORKER: 'delay_5s',
+      AGENT_MOCK_WORKER: process.env.AGENT_MOCK_WORKER ?? 'delay_5s',
       AGENT_SKIP_DOCTOR: '1',
       ...options.env
     }

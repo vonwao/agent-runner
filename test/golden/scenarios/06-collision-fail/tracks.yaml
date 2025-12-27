@@ -1,0 +1,18 @@
+# Scenario 06: Collision fail policy
+# Tests: collision_policy=fail → orchestration stops cleanly on collision
+#
+# Two tracks both target the same file (src/shared/collision.ts)
+# With fail policy, the second track should fail when collision is detected
+
+tracks:
+  - name: track-a
+    steps:
+      - task: tasks/a.md
+        allowlist:
+          - src/shared/collision.ts
+
+  - name: track-b
+    steps:
+      - task: tasks/b.md
+        allowlist:
+          - src/shared/collision.ts

@@ -1,0 +1,12 @@
+# Scenario 05: Counter-evidence STOP
+# Tests: no_changes_needed without evidence → insufficient_evidence
+#
+# Uses AGENT_MOCK_WORKER=no_changes_no_evidence
+# Implementer returns no_changes_needed with null evidence, triggering insufficient_evidence
+
+tracks:
+  - name: single
+    steps:
+      - task: tasks/one.md
+        allowlist:
+          - src/counter-evidence-test.ts

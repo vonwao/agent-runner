@@ -5,6 +5,8 @@
  * - "hang": Never resolves (simulates hung worker)
  * - "hang_once": First call hangs, subsequent calls succeed
  * - "delay_5s": Resolves after 5 seconds with valid output
+ * - "timeout_once_then_ok": First call times out (triggers worker_call_timeout), then succeeds
+ * - "no_changes_no_evidence": Returns no_changes_needed without evidence (triggers insufficient_evidence)
  * - unset/other: Not used (real workers are used)
  *
  * The mock worker returns valid JSON output for the stage being tested.
@@ -16,12 +18,21 @@ import { WorkerRunInput } from './codex.js';
 // Track call count for hang_once mode
 let callCount = 0;
 
+/** Valid mock worker modes */
+const MOCK_WORKER_MODES = [
+  'hang',
+  'hang_once',
+  'delay_5s',
+  'timeout_once_then_ok',
+  'no_changes_no_evidence'
+] as const;
+
 /**
  * Check if mock worker mode is enabled.
  */
 export function isMockWorkerEnabled(): boolean {
   const mode = process.env.AGENT_MOCK_WORKER;
-  return mode === 'hang' || mode === 'hang_once' || mode === 'delay_5s';
+  return MOCK_WORKER_MODES.includes(mode as typeof MOCK_WORKER_MODES[number]);
 }
 
 /**
@@ -116,6 +127,46 @@ export async function runMockWorker(input: WorkerRunInput): Promise<WorkerResult
       // Delay 5 seconds then succeed
       console.log('[mock-worker] Delaying 5 seconds...');
       await new Promise(resolve => setTimeout(resolve, 5000));
+      return {
+        status: 'ok',
+        commands_run: ['mock-worker'],
+        observations: [generateValidOutput(input.prompt)]
+      };
+
+    case 'timeout_once_then_ok':
+      // First call times out (for auto-resume testing), subsequent calls succeed
+      if (callCount === 1) {
+        console.log('[mock-worker] First call - sleeping 65s to trigger stall timeout...');
+        // Wait long enough to trigger stall timeout (tests set STALL_TIMEOUT_MINUTES=1)
+        await new Promise(resolve => setTimeout(resolve, 65000));
+        return {
+          status: 'failed',
+          commands_run: ['mock-worker'],
+          observations: ['Worker stall timeout (mock timeout_once_then_ok)']
+        };
+      }
+      console.log('[mock-worker] Subsequent call - returning success');
+      return {
+        status: 'ok',
+        commands_run: ['mock-worker'],
+        observations: [generateValidOutput(input.prompt)]
+      };
+
+    case 'no_changes_no_evidence':
+      // Returns no_changes_needed without evidence (triggers insufficient_evidence)
+      console.log('[mock-worker] Returning no_changes_needed without evidence');
+      if (input.prompt.includes('IMPLEMENT') || input.prompt.includes('implement')) {
+        return {
+          status: 'ok',
+          commands_run: ['mock-worker'],
+          observations: [JSON.stringify({
+            status: 'no_changes_needed',
+            handoff_memo: 'No changes needed (mock)',
+            evidence: null  // Missing evidence triggers insufficient_evidence
+          })]
+        };
+      }
+      // For other phases, return normal success
       return {
         status: 'ok',
         commands_run: ['mock-worker'],

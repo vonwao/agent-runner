@@ -1,0 +1,7 @@
+{
+  "mock_worker_mode": "timeout_once_then_ok",
+  "extra_args": ["--auto-resume"],
+  "env": {
+    "STALL_TIMEOUT_MINUTES": "1"
+  }
+}

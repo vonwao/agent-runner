@@ -23,7 +23,8 @@ export function getScenarioPaths(scenarioId: string) {
     tracks: path.join(scenarioDir, 'tracks.yaml'),
     tasks: path.join(scenarioDir, 'tasks'),
     expect: path.join(scenarioDir, 'expect.json'),
-    hooks: path.join(scenarioDir, 'hooks.json')
+    hooks: path.join(scenarioDir, 'hooks.json'),
+    config: path.join(scenarioDir, 'config.json')
   };
 }
 
