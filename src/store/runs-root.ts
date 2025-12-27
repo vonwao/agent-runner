@@ -1,14 +1,52 @@
 import path from 'node:path';
 
 /**
- * Get the runs root directory for a given repo path.
- * Runs are stored under .agent/runs in the target repo.
+ * Canonical agent paths structure.
+ * This is the single source of truth for all agent directory locations.
+ */
+export interface AgentPaths {
+  /** The target repository root */
+  repo_root: string;
+  /** The .agent directory root */
+  agent_root: string;
+  /** Directory for individual run artifacts */
+  runs_dir: string;
+  /** Directory for orchestration state and artifacts */
+  orchestrations_dir: string;
+}
+
+/**
+ * Get all canonical agent paths for a repository.
+ * This is the single source of truth - import this everywhere.
+ *
+ * Layout:
+ * ```
+ * .agent/
+ *   runs/<runId>/...
+ *   orchestrations/<orchId>/...
+ * ```
  *
  * @param repoPath - The target repository path
- * @returns The absolute path to the runs directory (e.g., /path/to/repo/.agent/runs)
+ * @returns All agent paths as absolute paths
+ */
+export function getAgentPaths(repoPath: string): AgentPaths {
+  const repoRoot = path.resolve(repoPath);
+  const agentRoot = path.join(repoRoot, '.agent');
+
+  return {
+    repo_root: repoRoot,
+    agent_root: agentRoot,
+    runs_dir: path.join(agentRoot, 'runs'),
+    orchestrations_dir: path.join(agentRoot, 'orchestrations')
+  };
+}
+
+/**
+ * Get the runs root directory for a given repo path.
+ * @deprecated Use getAgentPaths(repoPath).runs_dir instead
  */
 export function getRunsRoot(repoPath: string): string {
-  return path.join(path.resolve(repoPath), '.agent', 'runs');
+  return getAgentPaths(repoPath).runs_dir;
 }
 
 /**
@@ -19,5 +57,23 @@ export function getRunsRoot(repoPath: string): string {
  * @returns The absolute path to the run directory
  */
 export function getRunDir(repoPath: string, runId: string): string {
-  return path.join(getRunsRoot(repoPath), runId);
+  return path.join(getAgentPaths(repoPath).runs_dir, runId);
+}
+
+/**
+ * Get the orchestrations root directory.
+ *
+ * @param repoPath - The target repository path
+ * @returns The absolute path to the orchestrations directory
+ */
+export function getOrchestrationsRoot(repoPath: string): string {
+  return getAgentPaths(repoPath).orchestrations_dir;
+}
+
+/**
+ * Legacy orchestrations path (for migration).
+ * Old location was nested under runs.
+ */
+export function getLegacyOrchestrationsRoot(repoPath: string): string {
+  return path.join(getAgentPaths(repoPath).runs_dir, 'orchestrations');
 }

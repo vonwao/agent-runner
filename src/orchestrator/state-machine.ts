@@ -29,7 +29,12 @@ import {
   checkFileCollisions,
   ActiveRun
 } from '../supervisor/collision.js';
-import { getRunsRoot } from '../store/runs-root.js';
+import { getRunsRoot, getOrchestrationsRoot, getLegacyOrchestrationsRoot } from '../store/runs-root.js';
+import {
+  getOrchestrationDir,
+  findOrchestrationDir,
+  migrateOrchestrationIfNeeded
+} from './artifacts.js';
 
 /**
  * Generate a unique orchestrator ID.
@@ -403,47 +408,26 @@ export function getOrchestratorSummary(state: OrchestratorState): {
 }
 
 /**
- * Get the orchestrations root directory.
- */
-export function getOrchestrationsDir(repoPath: string): string {
-  return path.join(getRunsRoot(repoPath), 'orchestrations');
-}
-
-/**
- * Get the directory for a specific orchestration.
- */
-export function getOrchestrationDir(repoPath: string, orchestratorId: string): string {
-  return path.join(getOrchestrationsDir(repoPath), orchestratorId);
-}
-
-/**
  * Load orchestrator state from disk.
+ * Checks both new and legacy paths, migrating if needed.
  */
 export function loadOrchestratorState(
   orchestratorId: string,
   repoPath: string
 ): OrchestratorState | null {
-  // Try new structure first: .agent/orchestrations/<id>/state.json
-  const newPath = path.join(getOrchestrationDir(repoPath, orchestratorId), 'state.json');
-  if (fs.existsSync(newPath)) {
-    try {
-      const content = fs.readFileSync(newPath, 'utf-8');
-      const parsed = JSON.parse(content);
-      return orchestratorStateSchema.parse(parsed);
-    } catch {
-      return null;
-    }
-  }
+  // Find orchestration directory (handles migration automatically)
+  const orchDir = findOrchestrationDir(repoPath, orchestratorId);
 
-  // Fall back to old structure: .agent/orchestrations/<id>.json
-  const oldPath = path.join(getOrchestrationsDir(repoPath), `${orchestratorId}.json`);
-  if (fs.existsSync(oldPath)) {
-    try {
-      const content = fs.readFileSync(oldPath, 'utf-8');
-      const parsed = JSON.parse(content);
-      return orchestratorStateSchema.parse(parsed);
-    } catch {
-      return null;
+  if (orchDir) {
+    const statePath = path.join(orchDir, 'state.json');
+    if (fs.existsSync(statePath)) {
+      try {
+        const content = fs.readFileSync(statePath, 'utf-8');
+        const parsed = JSON.parse(content);
+        return orchestratorStateSchema.parse(parsed);
+      } catch {
+        return null;
+      }
     }
   }
 
@@ -463,35 +447,41 @@ export function saveOrchestratorState(state: OrchestratorState, repoPath: string
 
 /**
  * Find the latest orchestration ID.
+ * Checks both new path (.agent/orchestrations/) and legacy path (.agent/runs/orchestrations/).
  */
 export function findLatestOrchestrationId(repoPath: string): string | null {
-  const orchDir = getOrchestrationsDir(repoPath);
-  if (!fs.existsSync(orchDir)) {
-    return null;
-  }
-
-  // Look for both new (directories) and old (files) structures
-  const entries = fs.readdirSync(orchDir, { withFileTypes: true });
-
   const ids: string[] = [];
 
-  // New structure: directories starting with 'orch'
-  for (const e of entries) {
-    if (e.isDirectory() && e.name.startsWith('orch')) {
-      ids.push(e.name);
+  // Check new location: .agent/orchestrations/
+  const newOrchDir = getOrchestrationsRoot(repoPath);
+  if (fs.existsSync(newOrchDir)) {
+    for (const e of fs.readdirSync(newOrchDir, { withFileTypes: true })) {
+      if (e.isDirectory() && e.name.startsWith('orch')) {
+        ids.push(e.name);
+      }
     }
   }
 
-  // Old structure: .json files starting with 'orch'
-  for (const e of entries) {
-    if (e.isFile() && e.name.startsWith('orch') && e.name.endsWith('.json')) {
-      ids.push(e.name.replace('.json', ''));
+  // Check legacy location: .agent/runs/orchestrations/
+  const legacyOrchDir = getLegacyOrchestrationsRoot(repoPath);
+  if (fs.existsSync(legacyOrchDir)) {
+    for (const e of fs.readdirSync(legacyOrchDir, { withFileTypes: true })) {
+      if (e.isDirectory() && e.name.startsWith('orch')) {
+        // Don't add duplicates
+        if (!ids.includes(e.name)) {
+          ids.push(e.name);
+        }
+      }
     }
+  }
+
+  if (ids.length === 0) {
+    return null;
   }
 
   // Sort and return latest
   ids.sort().reverse();
-  return ids[0] ?? null;
+  return ids[0];
 }
 
 /**
@@ -594,29 +584,27 @@ export function shouldYieldTo(myRunId: string, otherRunId: string): boolean {
 
 /**
  * List all orchestration IDs (for status/listing commands).
+ * Checks both new and legacy paths.
  */
 export function listOrchestrationIds(repoPath: string): string[] {
-  const orchDir = getOrchestrationsDir(repoPath);
-  if (!fs.existsSync(orchDir)) {
-    return [];
-  }
-
-  const entries = fs.readdirSync(orchDir, { withFileTypes: true });
   const ids: string[] = [];
 
-  // New structure: directories
-  for (const e of entries) {
-    if (e.isDirectory() && e.name.startsWith('orch')) {
-      ids.push(e.name);
+  // Check new canonical path: .agent/orchestrations/
+  const newOrchDir = getOrchestrationsRoot(repoPath);
+  if (fs.existsSync(newOrchDir)) {
+    for (const e of fs.readdirSync(newOrchDir, { withFileTypes: true })) {
+      if (e.isDirectory() && e.name.startsWith('orch')) {
+        ids.push(e.name);
+      }
     }
   }
 
-  // Old structure: .json files
-  for (const e of entries) {
-    if (e.isFile() && e.name.startsWith('orch') && e.name.endsWith('.json')) {
-      const id = e.name.replace('.json', '');
-      if (!ids.includes(id)) {
-        ids.push(id);
+  // Check legacy path: .agent/runs/orchestrations/
+  const legacyOrchDir = getLegacyOrchestrationsRoot(repoPath);
+  if (fs.existsSync(legacyOrchDir)) {
+    for (const e of fs.readdirSync(legacyOrchDir, { withFileTypes: true })) {
+      if (e.isDirectory() && e.name.startsWith('orch') && !ids.includes(e.name)) {
+        ids.push(e.name);
       }
     }
   }

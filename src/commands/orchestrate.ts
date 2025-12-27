@@ -33,10 +33,9 @@ import {
   loadOrchestratorState,
   saveOrchestratorState,
   findLatestOrchestrationId,
-  reconcileState,
-  getOrchestrationDir
+  reconcileState
 } from '../orchestrator/state-machine.js';
-import { writeTerminalArtifacts } from '../orchestrator/artifacts.js';
+import { writeTerminalArtifacts, getOrchestrationDir } from '../orchestrator/artifacts.js';
 import { getRunsRoot } from '../store/runs-root.js';
 import { RunJsonOutput } from './run.js';
 import { WaitResult } from './wait.js';

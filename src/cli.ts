@@ -12,6 +12,7 @@ import { followCommand, findBestRunToFollow } from './commands/follow.js';
 import { gcCommand } from './commands/gc.js';
 import { waitCommand, findLatestRunId as findLatestRunIdForWait } from './commands/wait.js';
 import { orchestrateCommand, resumeOrchestrationCommand, waitOrchestrationCommand } from './commands/orchestrate.js';
+import { pathsCommand } from './commands/paths.js';
 import { CollisionPolicy } from './orchestrator/types.js';
 
 const program = new Command();
@@ -185,6 +186,19 @@ program
     await doctorCommand({
       repo: options.repo,
       config: options.config
+    });
+  });
+
+program
+  .command('paths')
+  .description('Display canonical agent directory paths (for scripts and tooling)')
+  .option('--repo <path>', 'Target repo path', '.')
+  .option('--json', 'Output JSON (default: true)', true)
+  .option('--no-json', 'Output human-readable table')
+  .action(async (options) => {
+    await pathsCommand({
+      repo: options.repo,
+      json: options.json
     });
   });
 

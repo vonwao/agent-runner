@@ -73,34 +73,89 @@ function copyDirRecursive(src: string, dest: string): void {
 }
 
 /**
- * Read the latest orchestration ID from a test repo.
+ * Get agent paths via CLI (canonical source of truth).
  */
-export function getLatestOrchestrationId(repoPath: string): string | null {
-  const orchDir = path.join(repoPath, '.agent', 'runs', 'orchestrations');
-  if (!fs.existsSync(orchDir)) {
+export async function getAgentPathsViaCLI(repoPath: string): Promise<{
+  repo_root: string;
+  agent_root: string;
+  runs_dir: string;
+  orchestrations_dir: string;
+} | null> {
+  const result = await runCommand('npx', ['agent', 'paths', '--json'], {
+    cwd: repoPath,
+    timeout: 10000
+  });
+
+  if (result.exitCode !== 0) {
     return null;
   }
 
-  const entries = fs.readdirSync(orchDir, { withFileTypes: true })
-    .filter(e => e.isDirectory() && e.name.startsWith('orch'))
-    .map(e => e.name)
-    .sort()
-    .reverse();
+  try {
+    return JSON.parse(result.stdout);
+  } catch {
+    return null;
+  }
+}
 
-  return entries[0] ?? null;
+/**
+ * Read the latest orchestration ID from a test repo.
+ * Checks both new path (.agent/orchestrations/) and legacy path (.agent/runs/orchestrations/).
+ */
+export function getLatestOrchestrationId(repoPath: string): string | null {
+  const ids: string[] = [];
+
+  // Check new canonical path: .agent/orchestrations/
+  const newOrchDir = path.join(repoPath, '.agent', 'orchestrations');
+  if (fs.existsSync(newOrchDir)) {
+    for (const e of fs.readdirSync(newOrchDir, { withFileTypes: true })) {
+      if (e.isDirectory() && e.name.startsWith('orch')) {
+        ids.push(e.name);
+      }
+    }
+  }
+
+  // Check legacy path: .agent/runs/orchestrations/
+  const legacyOrchDir = path.join(repoPath, '.agent', 'runs', 'orchestrations');
+  if (fs.existsSync(legacyOrchDir)) {
+    for (const e of fs.readdirSync(legacyOrchDir, { withFileTypes: true })) {
+      if (e.isDirectory() && e.name.startsWith('orch') && !ids.includes(e.name)) {
+        ids.push(e.name);
+      }
+    }
+  }
+
+  if (ids.length === 0) {
+    return null;
+  }
+
+  ids.sort().reverse();
+  return ids[0];
 }
 
 /**
  * Read orchestration state from a test repo.
+ * Checks both new and legacy paths.
  */
 export function readOrchestrationState(repoPath: string, orchId: string): unknown | null {
-  const statePath = path.join(repoPath, '.agent', 'runs', 'orchestrations', orchId, 'state.json');
-  if (!fs.existsSync(statePath)) {
-    return null;
+  // Try new canonical path first
+  const newStatePath = path.join(repoPath, '.agent', 'orchestrations', orchId, 'state.json');
+  if (fs.existsSync(newStatePath)) {
+    try {
+      return JSON.parse(fs.readFileSync(newStatePath, 'utf-8'));
+    } catch {
+      return null;
+    }
   }
-  try {
-    return JSON.parse(fs.readFileSync(statePath, 'utf-8'));
-  } catch {
-    return null;
+
+  // Fall back to legacy path
+  const legacyStatePath = path.join(repoPath, '.agent', 'runs', 'orchestrations', orchId, 'state.json');
+  if (fs.existsSync(legacyStatePath)) {
+    try {
+      return JSON.parse(fs.readFileSync(legacyStatePath, 'utf-8'));
+    } catch {
+      return null;
+    }
   }
+
+  return null;
 }

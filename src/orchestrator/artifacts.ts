@@ -16,13 +16,107 @@ import {
   OrchestratorStopReasonFamily,
   Track
 } from './types.js';
-import { getRunsRoot } from '../store/runs-root.js';
+import { getOrchestrationsRoot, getLegacyOrchestrationsRoot } from '../store/runs-root.js';
 
 /**
  * Get the orchestration directory for a given orchestrator ID.
+ * Uses new canonical path: .agent/orchestrations/<orchId>
  */
 export function getOrchestrationDir(repoPath: string, orchestratorId: string): string {
-  return path.join(getRunsRoot(repoPath), 'orchestrations', orchestratorId);
+  return path.join(getOrchestrationsRoot(repoPath), orchestratorId);
+}
+
+/**
+ * Get the legacy orchestration directory (for migration).
+ * Old path was: .agent/runs/orchestrations/<orchId>
+ */
+export function getLegacyOrchestrationDir(repoPath: string, orchestratorId: string): string {
+  return path.join(getLegacyOrchestrationsRoot(repoPath), orchestratorId);
+}
+
+/**
+ * Migrate orchestration from legacy path to new path if needed.
+ * Returns true if migration occurred.
+ */
+export function migrateOrchestrationIfNeeded(repoPath: string, orchestratorId: string): boolean {
+  const newDir = getOrchestrationDir(repoPath, orchestratorId);
+  const legacyDir = getLegacyOrchestrationDir(repoPath, orchestratorId);
+
+  // Already at new location - nothing to do
+  if (fs.existsSync(newDir)) {
+    return false;
+  }
+
+  // Check if exists at legacy location
+  if (!fs.existsSync(legacyDir)) {
+    return false;
+  }
+
+  // Migrate: copy to new location, then remove old
+  console.log(`Migrating orchestration ${orchestratorId} to new path structure...`);
+
+  // Ensure parent directory exists
+  fs.mkdirSync(path.dirname(newDir), { recursive: true });
+
+  // Copy recursively
+  copyDirRecursive(legacyDir, newDir);
+
+  // Remove old directory
+  fs.rmSync(legacyDir, { recursive: true, force: true });
+
+  // Clean up empty legacy orchestrations dir if empty
+  const legacyRoot = getLegacyOrchestrationsRoot(repoPath);
+  try {
+    const remaining = fs.readdirSync(legacyRoot);
+    if (remaining.length === 0) {
+      fs.rmdirSync(legacyRoot);
+    }
+  } catch {
+    // Ignore if can't clean up
+  }
+
+  console.log(`  Migrated to: ${newDir}`);
+  return true;
+}
+
+/**
+ * Find orchestration directory, checking both new and legacy paths.
+ * Automatically migrates if found at legacy location.
+ */
+export function findOrchestrationDir(repoPath: string, orchestratorId: string): string | null {
+  const newDir = getOrchestrationDir(repoPath, orchestratorId);
+
+  // Check new location first
+  if (fs.existsSync(newDir)) {
+    return newDir;
+  }
+
+  // Check legacy location and migrate if found
+  const legacyDir = getLegacyOrchestrationDir(repoPath, orchestratorId);
+  if (fs.existsSync(legacyDir)) {
+    migrateOrchestrationIfNeeded(repoPath, orchestratorId);
+    return getOrchestrationDir(repoPath, orchestratorId);
+  }
+
+  return null;
+}
+
+/**
+ * Copy directory recursively.
+ */
+function copyDirRecursive(src: string, dest: string): void {
+  fs.mkdirSync(dest, { recursive: true });
+
+  for (const entry of fs.readdirSync(src, { withFileTypes: true })) {
+    const srcPath = path.join(src, entry.name);
+    const destPath = path.join(dest, entry.name);
+
+    if (entry.isDirectory()) {
+      copyDirRecursive(srcPath, destPath);
+    } else {
+      fs.copyFileSync(srcPath, destPath);
+    }
+  }
 }
 
 /**
