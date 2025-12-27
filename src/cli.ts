@@ -11,7 +11,7 @@ import { doctorCommand } from './commands/doctor.js';
 import { followCommand, findBestRunToFollow } from './commands/follow.js';
 import { gcCommand } from './commands/gc.js';
 import { waitCommand, findLatestRunId as findLatestRunIdForWait } from './commands/wait.js';
-import { orchestrateCommand, resumeOrchestrationCommand } from './commands/orchestrate.js';
+import { orchestrateCommand, resumeOrchestrationCommand, waitOrchestrationCommand } from './commands/orchestrate.js';
 import { CollisionPolicy } from './orchestrator/types.js';
 
 const program = new Command();
@@ -310,6 +310,25 @@ orchestrateCmd
     await resumeOrchestrationCommand({
       orchestratorId,
       repo: options.repo
+    });
+  });
+
+orchestrateCmd
+  .command('wait')
+  .description('Block until orchestration reaches terminal state')
+  .argument('<orchestratorId>', 'Orchestrator ID to wait for (or "latest")')
+  .option('--repo <path>', 'Target repo path (default: current directory)', '.')
+  .option('--for <condition>', 'Wait condition: terminal, stop, complete', 'terminal')
+  .option('--timeout <ms>', 'Timeout in milliseconds')
+  .option('--json', 'Output JSON (default: true)', true)
+  .option('--no-json', 'Output human-readable text')
+  .action(async (orchestratorId: string, options) => {
+    await waitOrchestrationCommand({
+      orchestratorId,
+      repo: options.repo,
+      for: options.for as 'terminal' | 'stop' | 'complete',
+      timeout: options.timeout ? Number.parseInt(options.timeout, 10) : undefined,
+      json: options.json
     });
   });
 

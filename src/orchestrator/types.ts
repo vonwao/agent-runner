@@ -216,3 +216,103 @@ export const orchestratorStateSchema = z.object({
   time_budget_minutes: z.number(),
   max_ticks: z.number()
 });
+
+/**
+ * Orchestrator stop reason families (mirror run stop_reason_family).
+ */
+export type OrchestratorStopReasonFamily =
+  | 'guard'
+  | 'budget'
+  | 'verification'
+  | 'worker'
+  | 'stall'
+  | 'auth'
+  | 'orchestrator';
+
+/**
+ * Orchestrator-level stop reasons.
+ */
+export type OrchestratorStopReason =
+  | 'complete'                         // All tracks complete
+  | 'orchestrator_track_stopped'       // A child run stopped
+  | 'orchestrator_timeout'             // Time budget exhausted
+  | 'orchestrator_max_ticks'           // Max ticks per run exhausted
+  | 'orchestrator_blocked_on_collision'// Serialize policy couldn't progress
+  | 'orchestrator_internal_error';     // Unexpected error
+
+/**
+ * Wait result for orchestrations (mirrors run WaitResult).
+ */
+export interface OrchestratorWaitResult {
+  orchestrator_id: string;
+  orchestrator_dir: string;
+  repo_root: string;
+  status: 'complete' | 'stopped';
+  stop_reason?: OrchestratorStopReason;
+  stop_reason_family?: OrchestratorStopReasonFamily;
+  resume_command?: string;
+  tracks: {
+    completed: number;
+    total: number;
+  };
+  steps: {
+    completed: number;
+    total: number;
+  };
+  active_runs: Record<string, string>;
+  elapsed_ms: number;
+  ts: string;
+}
+
+/**
+ * Stop artifact with additional context.
+ */
+export interface OrchestratorStopArtifact extends OrchestratorWaitResult {
+  blocking_run_ids?: string[];
+  last_failed_track?: {
+    track_id: string;
+    step_index: number;
+    run_id?: string;
+    stop_reason?: string;
+  };
+}
+
+/**
+ * Summary artifact for meta-agent consumption.
+ */
+export interface OrchestratorSummaryArtifact {
+  orchestrator_id: string;
+  status: 'complete' | 'stopped';
+  repo_root: string;
+  started_at: string;
+  ended_at: string;
+  elapsed_ms: number;
+  policy: {
+    collision_policy: CollisionPolicy;
+    time_budget_minutes: number;
+    max_ticks: number;
+  };
+  tracks: Array<{
+    track_id: string;
+    name: string;
+    status: TrackStatus;
+    steps: Array<{
+      index: number;
+      task: string;
+      run_id?: string;
+      status: 'pending' | 'complete' | 'stopped';
+      stop_reason?: string;
+    }>;
+  }>;
+  collisions: Array<{
+    run_id: string;
+    conflicts_with: string[];
+    stage: 'pre_plan' | 'post_plan';
+    file_count: number;
+    files_top: string[];
+  }>;
+  next_action: {
+    kind: 'resume_orchestrator' | 'fix_and_resume_run' | 'none';
+    command?: string;
+  };
+}

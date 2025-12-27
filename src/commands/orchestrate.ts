@@ -19,7 +19,8 @@ import {
   OrchestrateOptions,
   OrchestratorState,
   CollisionPolicy,
-  StepResult
+  StepResult,
+  OrchestratorWaitResult
 } from '../orchestrator/types.js';
 import {
   loadOrchestrationConfig,
@@ -30,10 +31,12 @@ import {
   failTrack,
   getOrchestratorSummary,
   loadOrchestratorState,
+  saveOrchestratorState,
   findLatestOrchestrationId,
   reconcileState,
-  getOrchestrationsDir
+  getOrchestrationDir
 } from '../orchestrator/state-machine.js';
+import { writeTerminalArtifacts } from '../orchestrator/artifacts.js';
 import { getRunsRoot } from '../store/runs-root.js';
 import { RunJsonOutput } from './run.js';
 import { WaitResult } from './wait.js';
@@ -170,14 +173,15 @@ async function waitForRun(
 }
 
 /**
- * Save orchestrator state to disk.
+ * Save orchestrator state to disk and write terminal artifacts if complete.
  */
 function saveState(state: OrchestratorState, repoPath: string): void {
-  const orchDir = path.join(getRunsRoot(repoPath), 'orchestrations');
-  fs.mkdirSync(orchDir, { recursive: true });
+  saveOrchestratorState(state, repoPath);
 
-  const statePath = path.join(orchDir, `${state.orchestrator_id}.json`);
-  fs.writeFileSync(statePath, JSON.stringify(state, null, 2));
+  // Write terminal artifacts if orchestration is complete or stopped
+  if (state.status !== 'running') {
+    writeTerminalArtifacts(state, repoPath);
+  }
 }
 
 /**
@@ -519,5 +523,172 @@ export async function resumeOrchestrationCommand(options: OrchestrateResumeOptio
   const summary = getOrchestratorSummary(state);
   if (summary.failed > 0 || summary.stopped > 0) {
     process.exitCode = 1;
+  }
+}
+
+/**
+ * Options for orchestrate wait command.
+ */
+export interface OrchestrateWaitOptions {
+  orchestratorId: string;
+  repo: string;
+  for: 'terminal' | 'complete' | 'stop';
+  timeout?: number;
+  json: boolean;
+}
+
+const WAIT_POLL_INTERVAL_MS = 500;
+const WAIT_BACKOFF_MAX_MS = 2000;
+
+/**
+ * Wait for an orchestration to reach a terminal state.
+ */
+export async function waitOrchestrationCommand(options: OrchestrateWaitOptions): Promise<void> {
+  const repoPath = path.resolve(options.repo);
+
+  // Resolve "latest" to actual ID
+  let orchestratorId = options.orchestratorId;
+  if (orchestratorId === 'latest') {
+    const latest = findLatestOrchestrationId(repoPath);
+    if (!latest) {
+      if (options.json) {
+        console.log(JSON.stringify({ error: 'no_orchestrations', message: 'No orchestrations found' }));
+      } else {
+        console.error('No orchestrations found');
+      }
+      process.exitCode = 1;
+      return;
+    }
+    orchestratorId = latest;
+  }
+
+  const orchDir = getOrchestrationDir(repoPath, orchestratorId);
+  const handoffsDir = path.join(orchDir, 'handoffs');
+
+  // Check if orchestration exists
+  const state = loadOrchestratorState(orchestratorId, repoPath);
+  if (!state) {
+    if (options.json) {
+      console.log(JSON.stringify({
+        error: 'orchestration_not_found',
+        orchestrator_id: orchestratorId,
+        message: `Orchestration not found: ${orchestratorId}`
+      }));
+    } else {
+      console.error(`Orchestration not found: ${orchestratorId}`);
+    }
+    process.exitCode = 1;
+    return;
+  }
+
+  const startTime = Date.now();
+  const timeoutMs = options.timeout ?? Infinity;
+  let pollInterval = WAIT_POLL_INTERVAL_MS;
+
+  while (true) {
+    const elapsed = Date.now() - startTime;
+
+    // Check timeout
+    if (elapsed >= timeoutMs) {
+      const currentState = loadOrchestratorState(orchestratorId, repoPath);
+      if (options.json && currentState) {
+        const result = buildWaitResultFromState(currentState, repoPath, true);
+        console.log(JSON.stringify(result, null, 2));
+      } else {
+        console.log(`Timeout after ${Math.round(elapsed / 1000)}s`);
+      }
+      process.exitCode = 124;
+      return;
+    }
+
+    // Fast path: check for terminal artifact (most reliable)
+    const completePath = path.join(handoffsDir, 'complete.json');
+    const stopPath = path.join(handoffsDir, 'stop.json');
+
+    if (fs.existsSync(completePath)) {
+      const artifact: OrchestratorWaitResult = JSON.parse(fs.readFileSync(completePath, 'utf-8'));
+      if (options.for !== 'stop') {
+        outputWaitResult(artifact, options.json, elapsed);
+        process.exitCode = 0;
+        return;
+      }
+    }
+
+    if (fs.existsSync(stopPath)) {
+      const artifact: OrchestratorWaitResult = JSON.parse(fs.readFileSync(stopPath, 'utf-8'));
+      if (options.for !== 'complete') {
+        outputWaitResult(artifact, options.json, elapsed);
+        process.exitCode = 1;
+        return;
+      }
+    }
+
+    // Slow path: read state.json
+    const currentState = loadOrchestratorState(orchestratorId, repoPath);
+    if (currentState && currentState.status !== 'running') {
+      const isComplete = currentState.status === 'complete';
+      const matchesCondition =
+        options.for === 'terminal' ||
+        (options.for === 'complete' && isComplete) ||
+        (options.for === 'stop' && !isComplete);
+
+      if (matchesCondition) {
+        const result = buildWaitResultFromState(currentState, repoPath, false);
+        outputWaitResult(result, options.json, elapsed);
+        process.exitCode = isComplete ? 0 : 1;
+        return;
+      }
+    }
+
+    // Backoff polling
+    pollInterval = Math.min(pollInterval * 1.2, WAIT_BACKOFF_MAX_MS);
+    await sleep(pollInterval);
+  }
+}
+
+/**
+ * Build wait result from state (when no artifact exists yet).
+ */
+function buildWaitResultFromState(
+  state: OrchestratorState,
+  repoPath: string,
+  timedOut: boolean
+): OrchestratorWaitResult {
+  const { buildWaitResult } = require('../orchestrator/artifacts.js');
+  const result = buildWaitResult(state, repoPath) as OrchestratorWaitResult;
+
+  if (timedOut) {
+    return {
+      ...result,
+      status: 'stopped' as const,
+      stop_reason: 'orchestrator_timeout',
+      stop_reason_family: 'budget'
+    };
+  }
+
+  return result;
+}
+
+/**
+ * Output wait result in JSON or human-readable format.
+ */
+function outputWaitResult(
+  result: OrchestratorWaitResult,
+  json: boolean,
+  elapsedMs: number
+): void {
+  if (json) {
+    console.log(JSON.stringify(result, null, 2));
+  } else {
+    const statusWord = result.status === 'complete' ? 'Completed' : 'Stopped';
+    console.log(`${statusWord} after ${Math.round(elapsedMs / 1000)}s`);
+    console.log(`Tracks: ${result.tracks.completed}/${result.tracks.total}`);
+    console.log(`Steps: ${result.steps.completed}/${result.steps.total}`);
+    if (result.stop_reason) {
+      console.log(`Reason: ${result.stop_reason}`);
+    }
+    if (result.resume_command) {
+      console.log(`Resume: ${result.resume_command}`);
+    }
   }
 }
