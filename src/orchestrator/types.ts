@@ -65,6 +65,25 @@ export type CollisionPolicy =
   | 'fail';       // Fail the track on collision
 
 /**
+ * Policy block - immutable settings written at orchestration start.
+ * Resume uses these values, not CLI defaults.
+ */
+export interface OrchestratorPolicy {
+  /** Collision handling policy */
+  collision_policy: CollisionPolicy;
+  /** Max parallel tracks (0 = unlimited, defaults to track count) */
+  parallel: number;
+  /** Fast mode (skip PLAN/REVIEW phases) */
+  fast: boolean;
+  /** Auto-resume on transient failures */
+  auto_resume: boolean;
+  /** Time budget per run in minutes */
+  time_budget_minutes: number;
+  /** Max supervisor ticks per run */
+  max_ticks: number;
+}
+
+/**
  * Orchestrator state - the complete coordination state.
  */
 export interface OrchestratorState {
@@ -78,19 +97,27 @@ export interface OrchestratorState {
   active_runs: Record<string, string>;
   /** File claims: which run owns which file patterns */
   file_claims: Record<string, string>;
-  /** Scheduling policy */
-  collision_policy: CollisionPolicy;
   /** Overall status */
   status: OrchestratorStatus;
   /** Start timestamp */
   started_at: string;
   /** End timestamp */
   ended_at?: string;
-  /** Time budget in minutes (applies to each run) */
+
+  /**
+   * Policy block (v1+) - immutable settings from orchestration start.
+   * Resume uses policy values, not CLI defaults.
+   */
+  policy?: OrchestratorPolicy;
+
+  // Legacy fields (v0) - kept for backward compatibility, removed in v2
+  /** @deprecated Use policy.collision_policy */
+  collision_policy: CollisionPolicy;
+  /** @deprecated Use policy.time_budget_minutes */
   time_budget_minutes: number;
-  /** Max ticks per run */
+  /** @deprecated Use policy.max_ticks */
   max_ticks: number;
-  /** Fast mode (skip PLAN/REVIEW phases) */
+  /** @deprecated Use policy.fast */
   fast?: boolean;
 }
 
@@ -205,16 +232,28 @@ export const trackSchema = z.object({
   error: z.string().optional()
 });
 
+export const orchestratorPolicySchema = z.object({
+  collision_policy: z.enum(['serialize', 'force', 'fail']),
+  parallel: z.number(),
+  fast: z.boolean(),
+  auto_resume: z.boolean(),
+  time_budget_minutes: z.number(),
+  max_ticks: z.number()
+});
+
 export const orchestratorStateSchema = z.object({
   orchestrator_id: z.string(),
   repo_path: z.string(),
   tracks: z.array(trackSchema),
   active_runs: z.record(z.string()),
   file_claims: z.record(z.string()),
-  collision_policy: z.enum(['serialize', 'force', 'fail']),
   status: z.enum(['running', 'complete', 'stopped', 'failed']),
   started_at: z.string(),
   ended_at: z.string().optional(),
+  // v1+ policy block
+  policy: orchestratorPolicySchema.optional(),
+  // Legacy fields (v0) - kept for backward compatibility
+  collision_policy: z.enum(['serialize', 'force', 'fail']),
   time_budget_minutes: z.number(),
   max_ticks: z.number(),
   fast: z.boolean().optional()

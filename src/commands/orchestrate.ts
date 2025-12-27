@@ -33,7 +33,8 @@ import {
   loadOrchestratorState,
   saveOrchestratorState,
   findLatestOrchestrationId,
-  reconcileState
+  reconcileState,
+  getEffectivePolicy
 } from '../orchestrator/state-machine.js';
 import { writeTerminalArtifacts, getOrchestrationDir } from '../orchestrator/artifacts.js';
 import { getRunsRoot } from '../store/runs-root.js';
@@ -352,6 +353,93 @@ export async function orchestrateCommand(options: OrchestrateOptions): Promise<v
 }
 
 /**
+ * Policy override options for resume.
+ */
+export interface PolicyOverrides {
+  time?: number;
+  maxTicks?: number;
+  fast?: boolean;
+  collisionPolicy?: CollisionPolicy;
+}
+
+/**
+ * Record of a single override application.
+ */
+export interface OverrideRecord {
+  field: string;
+  from: unknown;
+  to: unknown;
+}
+
+/**
+ * Apply policy overrides to state.
+ * Returns the updated state and a list of what was changed.
+ */
+function applyPolicyOverrides(
+  state: OrchestratorState,
+  overrides: PolicyOverrides
+): { state: OrchestratorState; applied: OverrideRecord[] } {
+  const applied: OverrideRecord[] = [];
+  const policy = getEffectivePolicy(state);
+
+  // Create a mutable copy of policy
+  const newPolicy = { ...policy };
+
+  if (overrides.time !== undefined && overrides.time !== policy.time_budget_minutes) {
+    applied.push({
+      field: 'time_budget_minutes',
+      from: policy.time_budget_minutes,
+      to: overrides.time
+    });
+    newPolicy.time_budget_minutes = overrides.time;
+  }
+
+  if (overrides.maxTicks !== undefined && overrides.maxTicks !== policy.max_ticks) {
+    applied.push({
+      field: 'max_ticks',
+      from: policy.max_ticks,
+      to: overrides.maxTicks
+    });
+    newPolicy.max_ticks = overrides.maxTicks;
+  }
+
+  if (overrides.fast !== undefined && overrides.fast !== policy.fast) {
+    applied.push({
+      field: 'fast',
+      from: policy.fast,
+      to: overrides.fast
+    });
+    newPolicy.fast = overrides.fast;
+  }
+
+  if (overrides.collisionPolicy !== undefined && overrides.collisionPolicy !== policy.collision_policy) {
+    applied.push({
+      field: 'collision_policy',
+      from: policy.collision_policy,
+      to: overrides.collisionPolicy
+    });
+    newPolicy.collision_policy = overrides.collisionPolicy;
+  }
+
+  if (applied.length === 0) {
+    return { state, applied: [] };
+  }
+
+  // Update state with new policy
+  const newState = {
+    ...state,
+    policy: newPolicy,
+    // Also update legacy fields for backward compat
+    collision_policy: newPolicy.collision_policy,
+    time_budget_minutes: newPolicy.time_budget_minutes,
+    max_ticks: newPolicy.max_ticks,
+    fast: newPolicy.fast
+  };
+
+  return { state: newState, applied };
+}
+
+/**
  * Options for resuming an orchestration.
  */
 export interface OrchestrateResumeOptions {
@@ -359,6 +447,8 @@ export interface OrchestrateResumeOptions {
   orchestratorId: string;
   /** Target repo path */
   repo: string;
+  /** Optional policy overrides (logged as policy_override event) */
+  overrides?: PolicyOverrides;
 }
 
 /**
@@ -393,6 +483,20 @@ export async function resumeOrchestrationCommand(options: OrchestrateResumeOptio
   }
 
   console.log(`Resuming orchestration: ${orchestratorId}`);
+
+  // Apply policy overrides if provided
+  if (options.overrides) {
+    const { state: updatedState, applied } = applyPolicyOverrides(state, options.overrides);
+    state = updatedState;
+
+    if (applied.length > 0) {
+      console.log('Policy overrides applied:');
+      for (const override of applied) {
+        console.log(`  ${override.field}: ${override.from} → ${override.to}`);
+      }
+      saveState(state, repoPath);
+    }
+  }
 
   // Check if already terminal
   if (state.status !== 'running') {
@@ -460,15 +564,18 @@ export async function resumeOrchestrationCommand(options: OrchestrateResumeOptio
         const track = state.tracks.find((t) => t.id === trackId)!;
         const step = track.steps[track.current_step];
 
-        console.log(`Launching: ${track.name} - ${step.task_path}`);
+        // Use effective policy (from policy block or legacy fields)
+        const policy = getEffectivePolicy(state);
+
+        console.log(`Launching: ${track.name} - ${step.task_path} (fast=${policy.fast})`);
 
         const launchResult = await launchRun(step.task_path, repoPath, {
-          time: state.time_budget_minutes,
-          maxTicks: state.max_ticks,
+          time: policy.time_budget_minutes,
+          maxTicks: policy.max_ticks,
           allowDeps: false, // Default for resume
           worktree: false,
-          fast: state.fast ?? false,
-          forceParallel: state.collision_policy === 'force'
+          fast: policy.fast,
+          forceParallel: policy.collision_policy === 'force'
         });
 
         if ('error' in launchResult) {

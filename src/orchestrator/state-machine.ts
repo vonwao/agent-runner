@@ -13,6 +13,7 @@ import path from 'node:path';
 import yaml from 'yaml';
 import {
   OrchestratorState,
+  OrchestratorPolicy,
   OrchestrationConfig,
   Track,
   Step,
@@ -81,6 +82,8 @@ export function createInitialOrchestratorState(
     maxTicks: number;
     collisionPolicy: CollisionPolicy;
     fast?: boolean;
+    autoResume?: boolean;
+    parallel?: number;
   }
 ): OrchestratorState {
   const tracks: Track[] = config.tracks.map((tc, idx) => ({
@@ -94,18 +97,51 @@ export function createInitialOrchestratorState(
     status: 'pending' as TrackStatus
   }));
 
+  // Build the immutable policy block
+  const policy: OrchestratorPolicy = {
+    collision_policy: options.collisionPolicy,
+    parallel: options.parallel ?? tracks.length, // Default: all tracks can run
+    fast: options.fast ?? false,
+    auto_resume: options.autoResume ?? false,
+    time_budget_minutes: options.timeBudgetMinutes,
+    max_ticks: options.maxTicks
+  };
+
   return {
     orchestrator_id: makeOrchestratorId(),
     repo_path: repoPath,
     tracks,
     active_runs: {},
     file_claims: {},
-    collision_policy: options.collisionPolicy,
     status: 'running',
     started_at: new Date().toISOString(),
-    time_budget_minutes: options.timeBudgetMinutes,
-    max_ticks: options.maxTicks,
-    fast: options.fast
+    // v1+ policy block
+    policy,
+    // Legacy fields (kept for backward compat with existing readers)
+    collision_policy: policy.collision_policy,
+    time_budget_minutes: policy.time_budget_minutes,
+    max_ticks: policy.max_ticks,
+    fast: policy.fast
+  };
+}
+
+/**
+ * Get effective policy from state.
+ * Reads from policy block if present, falls back to legacy fields.
+ */
+export function getEffectivePolicy(state: OrchestratorState): OrchestratorPolicy {
+  if (state.policy) {
+    return state.policy;
+  }
+
+  // Migrate from legacy fields (v0 state)
+  return {
+    collision_policy: state.collision_policy,
+    parallel: state.tracks.length, // No parallelism limit in v0
+    fast: state.fast ?? false,
+    auto_resume: false, // Not available in v0
+    time_budget_minutes: state.time_budget_minutes,
+    max_ticks: state.max_ticks
   };
 }
 

@@ -320,10 +320,22 @@ orchestrateCmd
   .description('Resume a previously started orchestration')
   .argument('<orchestratorId>', 'Orchestrator ID to resume (or "latest")')
   .option('--repo <path>', 'Target repo path (default: current directory)', '.')
+  // Policy override flags (optional, logged if used)
+  .option('--time <minutes>', 'Override time budget per run')
+  .option('--max-ticks <count>', 'Override max supervisor ticks')
+  .option('--fast', 'Override fast mode (skip PLAN/REVIEW)')
+  .option('--no-fast', 'Disable fast mode override')
+  .option('--collision-policy <policy>', 'Override collision policy: serialize, force, fail')
   .action(async (orchestratorId: string, options) => {
     await resumeOrchestrationCommand({
       orchestratorId,
-      repo: options.repo
+      repo: options.repo,
+      overrides: {
+        time: options.time ? Number.parseInt(options.time, 10) : undefined,
+        maxTicks: options.maxTicks ? Number.parseInt(options.maxTicks, 10) : undefined,
+        fast: options.fast,
+        collisionPolicy: options.collisionPolicy
+      }
     });
   });
 
