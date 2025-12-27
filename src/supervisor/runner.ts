@@ -6,7 +6,7 @@ import { AgentConfig } from '../config/schema.js';
 import { git } from '../repo/git.js';
 import { listChangedFiles } from '../repo/context.js';
 import { RunStore, WorkerCallInfo } from '../store/run-store.js';
-import { Milestone, RunState, WorkerStats, VerificationEvidence, CommandResult } from '../types/schemas.js';
+import { Milestone, RunState, WorkerStats, VerificationEvidence } from '../types/schemas.js';
 import { buildImplementPrompt, buildPlanPrompt, buildReviewPrompt } from '../workers/prompts.js';
 import {
   buildContextPack,
@@ -32,6 +32,10 @@ import {
   checkFileCollisions,
   formatFileCollisionError
 } from './collision.js';
+import {
+  validateNoChangesEvidence,
+  formatEvidenceErrors
+} from './evidence-gate.js';
 
 /**
  * Stop reasons that are eligible for auto-resume.
@@ -165,6 +169,7 @@ function buildStructuredStopMemo(params: StopMemoParams): string {
     implement_blocked: 'Implementer reported it could not proceed.',
     guard_violation: 'Changes violated scope or lockfile constraints.',
     parallel_file_collision: 'Stopped to avoid merge conflicts with another active run.',
+    insufficient_evidence: 'Implementer claimed no changes needed but provided insufficient evidence.',
     plan_parse_failed: 'Planner output could not be parsed.',
     implement_parse_failed: 'Implementer output could not be parsed.',
     review_parse_failed: 'Reviewer output could not be parsed.',
@@ -180,6 +185,7 @@ function buildStructuredStopMemo(params: StopMemoParams): string {
     implement_blocked: 'Missing dependencies, unclear requirements, or environment issue.',
     guard_violation: 'Implementer modified files outside allowed scope.',
     parallel_file_collision: 'Another run is expected to modify the same files. Running in parallel would create merge conflicts.',
+    insufficient_evidence: 'Worker claimed work was already done without proving it. This prevents false certainty.',
     plan_parse_failed: 'Planner returned malformed JSON.',
     implement_parse_failed: 'Implementer returned malformed JSON.',
     review_parse_failed: 'Reviewer returned malformed JSON.'
@@ -222,7 +228,8 @@ function buildStructuredStopMemo(params: StopMemoParams): string {
     max_ticks_reached: '- ~5 ticks per milestone is typical. Increase --max-ticks for complex tasks.',
     stalled_timeout: '- Check if workers are authenticated. Run `agent doctor` to diagnose.',
     worker_call_timeout: '- Worker hung indefinitely. Check API status, network, and run `agent doctor`.',
-    parallel_file_collision: '- Use `agent status --all` to see conflicting runs. If you must proceed, use --force-parallel (may require manual merge resolution).'
+    parallel_file_collision: '- Use `agent status --all` to see conflicting runs. If you must proceed, use --force-parallel (may require manual merge resolution).',
+    insufficient_evidence: '- Worker must provide files_checked, grep_output, or commands_run to prove no changes needed. Re-run with clearer task instructions.'
   };
 
   lines.push(
@@ -865,6 +872,56 @@ async function handleImplement(state: RunState, options: SupervisorOptions): Pro
     implementer.handoff_memo
   );
 
+  // Handle no_changes_needed with evidence validation
+  if (implementer.status === 'no_changes_needed') {
+    const evidenceResult = validateNoChangesEvidence(
+      implementer.evidence,
+      state.scope_lock.allowlist
+    );
+
+    if (!evidenceResult.ok) {
+      options.runStore.appendEvent({
+        type: 'no_changes_evidence_failed',
+        source: parsed.worker,
+        payload: {
+          errors: evidenceResult.errors,
+          evidence_provided: implementer.evidence ?? null
+        }
+      });
+      const errorDetails = formatEvidenceErrors(evidenceResult);
+      return stopWithError(state, options, 'insufficient_evidence', errorDetails);
+    }
+
+    // Evidence validated - log success and skip to CHECKPOINT (no changes to verify)
+    options.runStore.appendEvent({
+      type: 'no_changes_evidence_ok',
+      source: parsed.worker,
+      payload: {
+        satisfied_by: evidenceResult.satisfied_by,
+        evidence: implementer.evidence
+      }
+    });
+
+    options.runStore.appendEvent({
+      type: 'implement_complete',
+      source: parsed.worker,
+      payload: {
+        changed_files: [],
+        handoff_memo: implementer.handoff_memo,
+        no_changes_needed: true,
+        evidence_satisfied_by: evidenceResult.satisfied_by
+      }
+    });
+
+    // Skip VERIFY since no changes were made, go directly to CHECKPOINT
+    const updatedWithStats: RunState = {
+      ...state,
+      worker_stats: incrementWorkerStats(state.worker_stats, parsed.worker, 'implement')
+    };
+    return updatePhase(updatedWithStats, 'CHECKPOINT');
+  }
+
+  // Handle blocked/failed status
   if (implementer.status !== 'ok') {
     return stopWithError(state, options, 'implement_blocked', implementer.handoff_memo);
   }
