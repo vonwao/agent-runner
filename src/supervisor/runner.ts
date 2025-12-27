@@ -251,7 +251,14 @@ export async function runSupervisorLoop(options: SupervisorOptions): Promise<voi
   const maxResumes = options.config.resilience?.max_auto_resumes ?? 1;
   const delays = options.config.resilience?.auto_resume_delays_ms ?? [30000, 120000, 300000];
 
+  // Track consecutive same-stop-reason to detect loops
+  let lastStopReason: string | undefined;
+  let consecutiveSameStops = 0;
+  const MAX_CONSECUTIVE_SAME_STOPS = 2; // Cut off if same reason 2x in a row
+
   // Auto-resume loop
+  let currentAttempt = 0; // Track which auto-resume attempt we're on (0 = initial run)
+
   while (true) {
     await runSupervisorOnce(options);
 
@@ -259,6 +266,20 @@ export async function runSupervisorLoop(options: SupervisorOptions): Promise<voi
     const finalState = options.runStore.readState();
     const stopReason = finalState.stop_reason;
     const autoResumeCount = finalState.auto_resume_count ?? 0;
+
+    // Emit auto_resume_result for metrics (only after auto-resume attempts, not initial run)
+    if (currentAttempt > 0) {
+      const outcome = stopReason === 'complete' ? 'completed' : 'stopped_again';
+      options.runStore.appendEvent({
+        type: 'auto_resume_result',
+        source: 'supervisor',
+        payload: {
+          attempt: currentAttempt,
+          outcome,
+          stop_reason: stopReason ?? undefined
+        }
+      });
+    }
 
     // Check if this stop reason is auto-resumable
     if (!isAutoResumable(stopReason)) {
@@ -291,6 +312,28 @@ export async function runSupervisorLoop(options: SupervisorOptions): Promise<voi
       console.log(`Tip: Use \`agent-run resume ${finalState.run_id}\` to continue manually.\n`);
       break;
     }
+
+    // Same-stop-repeat protection: cut off if same reason repeats too many times
+    if (stopReason === lastStopReason) {
+      consecutiveSameStops++;
+      if (consecutiveSameStops >= MAX_CONSECUTIVE_SAME_STOPS) {
+        options.runStore.appendEvent({
+          type: 'auto_resume_loop_detected',
+          source: 'supervisor',
+          payload: {
+            reason: stopReason,
+            consecutive_count: consecutiveSameStops,
+            auto_resume_count: autoResumeCount
+          }
+        });
+        console.log(`\nAuto-resume loop detected: ${stopReason} repeated ${consecutiveSameStops}x. Stopping.`);
+        console.log(`Tip: Investigate root cause before resuming manually.\n`);
+        break;
+      }
+    } else {
+      consecutiveSameStops = 1;
+    }
+    lastStopReason = stopReason;
 
     // Calculate backoff delay
     const delayMs = delays[Math.min(autoResumeCount, delays.length - 1)];
