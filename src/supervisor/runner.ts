@@ -187,15 +187,15 @@ function buildStructuredStopMemo(params: StopMemoParams): string {
 
   let nextAction: string;
   if (reason === 'time_budget_exceeded') {
-    nextAction = `agent-run resume ${runId}${suggestedTime ? ` --time ${suggestedTime}` : ''}`;
+    nextAction = `agent resume ${runId}${suggestedTime ? ` --time ${suggestedTime}` : ''}`;
   } else if (reason === 'max_ticks_reached') {
-    nextAction = `agent-run resume ${runId}${suggestedTicks ? ` --max-ticks ${suggestedTicks}` : ''}`;
+    nextAction = `agent resume ${runId}${suggestedTicks ? ` --max-ticks ${suggestedTicks}` : ''}`;
   } else if (reason === 'parallel_file_collision') {
-    nextAction = `# Wait for conflicting run to complete, then:\nagent-run resume ${runId}`;
+    nextAction = `# Wait for conflicting run to complete, then:\nagent resume ${runId}`;
   } else if (reason === 'complete') {
     nextAction = 'None - run completed successfully.';
   } else {
-    nextAction = `agent-run resume ${runId} --force  # Review state first`;
+    nextAction = `agent resume ${runId} --force  # Review state first`;
   }
 
   const lines = [
@@ -220,8 +220,8 @@ function buildStructuredStopMemo(params: StopMemoParams): string {
   const tipsByReason: Record<string, string> = {
     time_budget_exceeded: '- Consider increasing --time if task is complex',
     max_ticks_reached: '- ~5 ticks per milestone is typical. Increase --max-ticks for complex tasks.',
-    stalled_timeout: '- Check if workers are authenticated. Run `agent-run doctor` to diagnose.',
-    worker_call_timeout: '- Worker hung indefinitely. Check API status, network, and run `agent-run doctor`.',
+    stalled_timeout: '- Check if workers are authenticated. Run `agent doctor` to diagnose.',
+    worker_call_timeout: '- Worker hung indefinitely. Check API status, network, and run `agent doctor`.',
     parallel_file_collision: '- Use `agent status --all` to see conflicting runs. If you must proceed, use --force-parallel (may require manual merge resolution).'
   };
 
@@ -322,7 +322,7 @@ export async function runSupervisorLoop(options: SupervisorOptions): Promise<voi
         }
       });
       console.log(`\nAuto-resume cap reached (${autoResumeCount}/${maxResumes}). Manual intervention required.`);
-      console.log(`Tip: Use \`agent-run resume ${finalState.run_id}\` to continue manually.\n`);
+      console.log(`Tip: Use \`agent resume ${finalState.run_id}\` to continue manually.\n`);
       break;
     }
 
@@ -534,7 +534,7 @@ async function runSupervisorOnce(options: SupervisorOptions): Promise<void> {
         console.log(
           `\nTime budget exceeded (${Math.floor(elapsedMinutes)}/${options.timeBudgetMinutes} min) at milestone ${state.milestone_index + 1}/${state.milestones.length}.`
         );
-        console.log(`Tip: Use \`agent-run resume ${state.run_id} --time ${Math.ceil(options.timeBudgetMinutes * 1.5)}\` to continue with more time.\n`);
+        console.log(`Tip: Use \`agent resume ${state.run_id} --time ${Math.ceil(options.timeBudgetMinutes * 1.5)}\` to continue with more time.\n`);
         break;
       }
 
@@ -581,7 +581,7 @@ async function runSupervisorOnce(options: SupervisorOptions): Promise<void> {
         console.log(
           `\nMax ticks reached (${ticksUsed}/${options.maxTicks}) at milestone ${finalState.milestone_index + 1}/${finalState.milestones.length}.`
         );
-        console.log(`Tip: ~5 ticks per milestone. Use \`agent-run resume ${finalState.run_id} --max-ticks ${Math.ceil(options.maxTicks * 1.5)}\` to continue.\n`);
+        console.log(`Tip: ~5 ticks per milestone. Use \`agent resume ${finalState.run_id} --max-ticks ${Math.ceil(options.maxTicks * 1.5)}\` to continue.\n`);
       }
     }
   } finally {
@@ -725,7 +725,7 @@ async function handlePlan(state: RunState, options: SupervisorOptions): Promise<
               run_id: c.runId,
               colliding_files: c.collidingFiles,
               run_phase: c.phase,
-              run_age: c.updatedAt
+              run_updated_at: c.updatedAt
             }))
           }
         });
