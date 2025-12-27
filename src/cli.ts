@@ -209,11 +209,13 @@ program
   .description('Show aggregated metrics across all runs and orchestrations')
   .option('--repo <path>', 'Target repo path', '.')
   .option('--days <n>', 'Number of days to aggregate (default: 30)', '30')
+  .option('--window <n>', 'Max runs to consider (default: 50 runs, 20 orchestrations)')
   .option('--json', 'Output JSON format', false)
   .action(async (options) => {
     await metricsCommand({
       repo: options.repo,
       days: parseInt(options.days, 10),
+      window: options.window ? parseInt(options.window, 10) : undefined,
       json: options.json
     });
   });
