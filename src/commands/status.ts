@@ -23,7 +23,7 @@ interface RunSummary {
   stopReason: string;
   autoResumeCount: number;
   inFlight: string;
-  collisionRisk: 'none' | 'low' | 'high';
+  collisionRisk: 'none' | 'allowlist' | 'collision' | '-';
   updatedAt: Date;
 }
 
@@ -95,8 +95,10 @@ export async function statusAllCommand(options: StatusAllOptions): Promise<void>
       }
 
       // Compute collision risk with other active runs (excluding this run)
-      let collisionRisk: 'none' | 'low' | 'high' = 'none';
+      // Only show risk for running runs; stopped runs show '-'
+      let collisionRisk: 'none' | 'allowlist' | 'collision' | '-' = '-';
       if (isRunning) {
+        collisionRisk = 'none';
         const otherActiveRuns = allActiveRuns.filter(r => r.runId !== runId);
         if (otherActiveRuns.length > 0) {
           // Extract files_expected from milestones
@@ -220,11 +222,15 @@ function printTable(summaries: RunSummary[]): void {
   // Print summary
   const running = summaries.filter(s => s.status === 'running').length;
   const stopped = summaries.filter(s => s.status === 'stopped').length;
-  const withRisk = summaries.filter(s => s.collisionRisk !== 'none').length;
+  const allowlistRisk = summaries.filter(s => s.collisionRisk === 'allowlist').length;
+  const collisionRisk = summaries.filter(s => s.collisionRisk === 'collision').length;
   console.log('');
   let summaryLine = `Total: ${summaries.length} runs (${running} running, ${stopped} stopped)`;
-  if (withRisk > 0) {
-    summaryLine += ` - ${withRisk} with collision risk`;
+  if (allowlistRisk > 0 || collisionRisk > 0) {
+    const riskParts: string[] = [];
+    if (allowlistRisk > 0) riskParts.push(`${allowlistRisk} allowlist`);
+    if (collisionRisk > 0) riskParts.push(`${collisionRisk} collision`);
+    summaryLine += ` — risk: ${riskParts.join(', ')}`;
   }
   console.log(summaryLine);
 }

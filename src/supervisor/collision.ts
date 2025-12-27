@@ -28,6 +28,8 @@ export interface AllowlistOverlap {
 export interface FileCollision {
   runId: string;
   collidingFiles: string[];
+  phase?: string;
+  updatedAt?: string;
 }
 
 export interface CollisionCheckResult {
@@ -191,7 +193,9 @@ export function checkFileCollisions(
     if (collidingFiles.length > 0) {
       collisions.push({
         runId: run.runId,
-        collidingFiles
+        collidingFiles,
+        phase: run.phase,
+        updatedAt: run.updatedAt
       });
     }
   }
@@ -245,50 +249,74 @@ export function formatAllowlistWarning(overlaps: AllowlistOverlap[]): string {
 }
 
 /**
+ * Format age from ISO timestamp to human-readable string.
+ */
+function formatAge(isoTimestamp: string | undefined): string {
+  if (!isoTimestamp) return '';
+  const diffMs = Date.now() - new Date(isoTimestamp).getTime();
+  if (diffMs < 0) return '';
+
+  const minutes = Math.floor(diffMs / 60000);
+  if (minutes < 60) return `${minutes}m`;
+
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}h`;
+
+  const days = Math.floor(hours / 24);
+  return `${days}d`;
+}
+
+/**
  * Format collision error for console output.
  */
 export function formatFileCollisionError(collisions: FileCollision[]): string {
   if (collisions.length === 0) return '';
 
   const lines = [
-    'ERROR: File collision detected with active runs:',
+    'ERROR: This run will stop to avoid merge conflicts.',
     ''
   ];
 
   for (const collision of collisions) {
-    lines.push(`  Run ${collision.runId}:`);
-    for (const file of collision.collidingFiles.slice(0, 10)) {
+    const ageStr = formatAge(collision.updatedAt);
+    const phaseStr = collision.phase ? `, ${collision.phase}` : '';
+    const contextStr = ageStr || phaseStr ? ` (${[collision.phase, ageStr].filter(Boolean).join(', ')})` : '';
+
+    const fileCount = collision.collidingFiles.length;
+    const showCount = Math.min(3, fileCount);
+    lines.push(`Conflicts with: ${collision.runId}${contextStr}`);
+    lines.push(`  ${fileCount} file${fileCount > 1 ? 's' : ''} overlap${showCount < fileCount ? ` (showing ${showCount})` : ''}:`);
+
+    for (const file of collision.collidingFiles.slice(0, showCount)) {
       lines.push(`    - ${file}`);
-    }
-    if (collision.collidingFiles.length > 10) {
-      lines.push(`    ... and ${collision.collidingFiles.length - 10} more files`);
     }
   }
 
   lines.push('');
   lines.push('Options:');
-  lines.push('  1. Wait for active runs to complete');
-  lines.push('  2. Re-run with --force-parallel to proceed anyway');
+  lines.push(`  1. Wait for run ${collisions[0].runId} to complete (recommended)`);
+  lines.push('  2. Re-run with --force-parallel (may require manual merge resolution)');
 
   return lines.join('\n');
 }
 
 /**
  * Get collision summary for status display.
+ * Returns diagnostic labels: 'none', 'allowlist' (pattern overlap), 'collision' (file conflict).
  */
 export function getCollisionRisk(
   runAllowlist: string[],
   runTouchFiles: string[],
   activeRuns: ActiveRun[]
-): 'none' | 'low' | 'high' {
+): 'none' | 'allowlist' | 'collision' {
   const result = checkCollisions(runAllowlist, runTouchFiles, activeRuns);
 
   if (result.fileCollisions.length > 0) {
-    return 'high';
+    return 'collision';
   }
 
   if (result.allowlistOverlaps.length > 0) {
-    return 'low';
+    return 'allowlist';
   }
 
   return 'none';

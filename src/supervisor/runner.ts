@@ -164,6 +164,7 @@ function buildStructuredStopMemo(params: StopMemoParams): string {
     verification_failed_max_retries: 'Verification failed too many times on the same milestone.',
     implement_blocked: 'Implementer reported it could not proceed.',
     guard_violation: 'Changes violated scope or lockfile constraints.',
+    parallel_file_collision: 'Stopped to avoid merge conflicts with another active run.',
     plan_parse_failed: 'Planner output could not be parsed.',
     implement_parse_failed: 'Implementer output could not be parsed.',
     review_parse_failed: 'Reviewer output could not be parsed.',
@@ -178,6 +179,7 @@ function buildStructuredStopMemo(params: StopMemoParams): string {
     verification_failed_max_retries: 'Code changes broke tests/lint and fixes kept failing.',
     implement_blocked: 'Missing dependencies, unclear requirements, or environment issue.',
     guard_violation: 'Implementer modified files outside allowed scope.',
+    parallel_file_collision: 'Another run is expected to modify the same files. Running in parallel would create merge conflicts.',
     plan_parse_failed: 'Planner returned malformed JSON.',
     implement_parse_failed: 'Implementer returned malformed JSON.',
     review_parse_failed: 'Reviewer returned malformed JSON.'
@@ -188,6 +190,8 @@ function buildStructuredStopMemo(params: StopMemoParams): string {
     nextAction = `agent-run resume ${runId}${suggestedTime ? ` --time ${suggestedTime}` : ''}`;
   } else if (reason === 'max_ticks_reached') {
     nextAction = `agent-run resume ${runId}${suggestedTicks ? ` --max-ticks ${suggestedTicks}` : ''}`;
+  } else if (reason === 'parallel_file_collision') {
+    nextAction = `# Wait for conflicting run to complete, then:\nagent-run resume ${runId}`;
   } else if (reason === 'complete') {
     nextAction = 'None - run completed successfully.';
   } else {
@@ -217,7 +221,8 @@ function buildStructuredStopMemo(params: StopMemoParams): string {
     time_budget_exceeded: '- Consider increasing --time if task is complex',
     max_ticks_reached: '- ~5 ticks per milestone is typical. Increase --max-ticks for complex tasks.',
     stalled_timeout: '- Check if workers are authenticated. Run `agent-run doctor` to diagnose.',
-    worker_call_timeout: '- Worker hung indefinitely. Check API status, network, and run `agent-run doctor`.'
+    worker_call_timeout: '- Worker hung indefinitely. Check API status, network, and run `agent-run doctor`.',
+    parallel_file_collision: '- Use `agent status --all` to see conflicting runs. If you must proceed, use --force-parallel (may require manual merge resolution).'
   };
 
   lines.push(
@@ -714,10 +719,13 @@ async function handlePlan(state: RunState, options: SupervisorOptions): Promise<
           type: 'parallel_file_collision',
           source: 'supervisor',
           payload: {
-            expected_files: expectedFiles,
+            stage: 'post_plan',
+            predicted_files: expectedFiles,
             collisions: fileCollisions.map(c => ({
               run_id: c.runId,
-              colliding_files: c.collidingFiles
+              colliding_files: c.collidingFiles,
+              run_phase: c.phase,
+              run_age: c.updatedAt
             }))
           }
         });
