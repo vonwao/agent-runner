@@ -21,13 +21,15 @@ import {
   OrchestratorStatus,
   CollisionPolicy,
   StepResult,
-  orchestrationConfigSchema
+  orchestrationConfigSchema,
+  orchestratorStateSchema
 } from './types.js';
 import {
   getActiveRuns,
   checkFileCollisions,
   ActiveRun
 } from '../supervisor/collision.js';
+import { getRunsRoot } from '../store/runs-root.js';
 
 /**
  * Generate a unique orchestrator ID.
@@ -396,4 +398,168 @@ export function getOrchestratorSummary(state: OrchestratorState): {
     total_steps: totalSteps,
     completed_steps: completedSteps
   };
+}
+
+/**
+ * Get the orchestrations directory path.
+ */
+export function getOrchestrationsDir(repoPath: string): string {
+  return path.join(getRunsRoot(repoPath), 'orchestrations');
+}
+
+/**
+ * Load orchestrator state from disk.
+ */
+export function loadOrchestratorState(
+  orchestratorId: string,
+  repoPath: string
+): OrchestratorState | null {
+  const orchDir = getOrchestrationsDir(repoPath);
+  const statePath = path.join(orchDir, `${orchestratorId}.json`);
+
+  if (!fs.existsSync(statePath)) {
+    return null;
+  }
+
+  try {
+    const content = fs.readFileSync(statePath, 'utf-8');
+    const parsed = JSON.parse(content);
+    return orchestratorStateSchema.parse(parsed);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Find the latest orchestration ID.
+ */
+export function findLatestOrchestrationId(repoPath: string): string | null {
+  const orchDir = getOrchestrationsDir(repoPath);
+  if (!fs.existsSync(orchDir)) {
+    return null;
+  }
+
+  const files = fs
+    .readdirSync(orchDir, { withFileTypes: true })
+    .filter((e) => e.isFile() && e.name.startsWith('orch') && e.name.endsWith('.json'))
+    .map((e) => e.name.replace('.json', ''))
+    .sort()
+    .reverse();
+
+  return files[0] ?? null;
+}
+
+/**
+ * Reconciliation result for a single active run.
+ */
+export interface ReconciliationResult {
+  trackId: string;
+  runId: string;
+  status: 'still_running' | 'completed' | 'stopped' | 'not_found';
+  result?: StepResult;
+}
+
+/**
+ * Probe a run to check if it's still active or has completed.
+ * Returns the run status without blocking.
+ */
+export async function probeRunStatus(
+  runId: string,
+  repoPath: string
+): Promise<{ status: 'running' | 'terminal'; result?: StepResult }> {
+  const runDir = path.join(getRunsRoot(repoPath), runId);
+  const statePath = path.join(runDir, 'state.json');
+
+  if (!fs.existsSync(statePath)) {
+    return { status: 'terminal', result: { status: 'stopped', stop_reason: 'run_not_found', elapsed_ms: 0 } };
+  }
+
+  try {
+    const content = fs.readFileSync(statePath, 'utf-8');
+    const runState = JSON.parse(content);
+
+    const isTerminal = runState.phase === 'STOPPED' || runState.phase === 'DONE';
+
+    if (isTerminal) {
+      const isComplete = runState.stop_reason === 'complete';
+      return {
+        status: 'terminal',
+        result: {
+          status: isComplete ? 'complete' : 'stopped',
+          stop_reason: runState.stop_reason,
+          elapsed_ms: 0 // We don't track this in state.json
+        }
+      };
+    }
+
+    return { status: 'running' };
+  } catch {
+    return { status: 'terminal', result: { status: 'stopped', stop_reason: 'state_parse_error', elapsed_ms: 0 } };
+  }
+}
+
+/**
+ * Reconcile orchestrator state with actual run statuses.
+ *
+ * For each recorded active run:
+ * - Check if it's still running or has completed
+ * - Update state accordingly
+ *
+ * This is the critical crash-resume correctness step.
+ */
+export async function reconcileState(
+  state: OrchestratorState
+): Promise<{ state: OrchestratorState; reconciled: ReconciliationResult[] }> {
+  let newState = { ...state };
+  const reconciled: ReconciliationResult[] = [];
+
+  for (const [trackId, runId] of Object.entries(state.active_runs)) {
+    const probe = await probeRunStatus(runId, state.repo_path);
+
+    if (probe.status === 'running') {
+      reconciled.push({ trackId, runId, status: 'still_running' });
+      // No state change needed - run is still active
+    } else {
+      // Run has completed - update state
+      const result = probe.result!;
+      reconciled.push({
+        trackId,
+        runId,
+        status: result.status === 'complete' ? 'completed' : 'stopped',
+        result
+      });
+
+      newState = completeTrackStep(newState, trackId, result);
+    }
+  }
+
+  return { state: newState, reconciled };
+}
+
+/**
+ * Check if this run should yield to another based on serialize policy.
+ *
+ * Deadlock prevention rule: later run_id yields to earlier run_id.
+ * Run IDs are timestamps (YYYYMMDDHHMMSS), so lexicographic order = time order.
+ */
+export function shouldYieldTo(myRunId: string, otherRunId: string): boolean {
+  // Later run yields to earlier run
+  return myRunId > otherRunId;
+}
+
+/**
+ * List all orchestration IDs (for status/listing commands).
+ */
+export function listOrchestrationIds(repoPath: string): string[] {
+  const orchDir = getOrchestrationsDir(repoPath);
+  if (!fs.existsSync(orchDir)) {
+    return [];
+  }
+
+  return fs
+    .readdirSync(orchDir, { withFileTypes: true })
+    .filter((e) => e.isFile() && e.name.startsWith('orch') && e.name.endsWith('.json'))
+    .map((e) => e.name.replace('.json', ''))
+    .sort()
+    .reverse();
 }

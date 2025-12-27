@@ -28,7 +28,11 @@ import {
   startTrackRun,
   completeTrackStep,
   failTrack,
-  getOrchestratorSummary
+  getOrchestratorSummary,
+  loadOrchestratorState,
+  findLatestOrchestrationId,
+  reconcileState,
+  getOrchestrationsDir
 } from '../orchestrator/state-machine.js';
 import { getRunsRoot } from '../store/runs-root.js';
 import { RunJsonOutput } from './run.js';
@@ -323,6 +327,182 @@ export async function orchestrateCommand(options: OrchestrateOptions): Promise<v
           saveState(state, repoPath);
         } else {
           // No active waits, just poll
+          await sleep(POLL_INTERVAL_MS);
+        }
+        break;
+    }
+
+    printStatus(state);
+  }
+
+  // Final summary
+  console.log('='.repeat(60));
+  console.log('ORCHESTRATION COMPLETE');
+  printStatus(state);
+
+  const summary = getOrchestratorSummary(state);
+  if (summary.failed > 0 || summary.stopped > 0) {
+    process.exitCode = 1;
+  }
+}
+
+/**
+ * Options for resuming an orchestration.
+ */
+export interface OrchestrateResumeOptions {
+  /** Orchestrator ID to resume (or "latest") */
+  orchestratorId: string;
+  /** Target repo path */
+  repo: string;
+}
+
+/**
+ * Resume a previously started orchestration.
+ *
+ * On resume:
+ * 1. Load saved state from disk
+ * 2. Reconcile active runs (probe for completion)
+ * 3. Continue scheduling from current state
+ */
+export async function resumeOrchestrationCommand(options: OrchestrateResumeOptions): Promise<void> {
+  const repoPath = path.resolve(options.repo);
+
+  // Resolve "latest" to actual ID
+  let orchestratorId = options.orchestratorId;
+  if (orchestratorId === 'latest') {
+    const latest = findLatestOrchestrationId(repoPath);
+    if (!latest) {
+      console.error('No orchestrations found');
+      process.exitCode = 1;
+      return;
+    }
+    orchestratorId = latest;
+  }
+
+  // Load saved state
+  let state = loadOrchestratorState(orchestratorId, repoPath);
+  if (!state) {
+    console.error(`Orchestration not found: ${orchestratorId}`);
+    process.exitCode = 1;
+    return;
+  }
+
+  console.log(`Resuming orchestration: ${orchestratorId}`);
+
+  // Check if already terminal
+  if (state.status !== 'running') {
+    console.log(`Orchestration already ${state.status}`);
+    printStatus(state);
+    process.exitCode = state.status === 'complete' ? 0 : 1;
+    return;
+  }
+
+  // Reconcile active runs
+  console.log('Reconciling active runs...');
+  const { state: reconciledState, reconciled } = await reconcileState(state);
+  state = reconciledState;
+
+  for (const r of reconciled) {
+    const status = r.status === 'still_running' ? 'still running' : r.status;
+    console.log(`  ${r.trackId} (${r.runId}): ${status}`);
+  }
+
+  saveState(state, repoPath);
+
+  // If all runs finished during reconciliation
+  if (state.status !== 'running') {
+    console.log('All runs completed during reconciliation');
+    printStatus(state);
+    process.exitCode = state.status === 'complete' ? 0 : 1;
+    return;
+  }
+
+  // Resume tracking active waits
+  const activeWaits = new Map<string, Promise<StepResult>>();
+
+  // Start waiting for any still-running runs
+  for (const r of reconciled) {
+    if (r.status === 'still_running') {
+      const waitPromise = waitForRun(r.runId, repoPath);
+      activeWaits.set(r.trackId, waitPromise);
+    }
+  }
+
+  console.log('Continuing orchestration...');
+  console.log('');
+
+  // Main orchestration loop (same as orchestrateCommand)
+  while (state.status === 'running') {
+    const decision = makeScheduleDecision(state);
+
+    switch (decision.action) {
+      case 'done':
+        state.status = state.tracks.every((t) => t.status === 'complete')
+          ? 'complete'
+          : 'stopped';
+        state.ended_at = new Date().toISOString();
+        break;
+
+      case 'blocked':
+        console.error(`BLOCKED: ${decision.reason}`);
+        if (decision.track_id) {
+          state = failTrack(state, decision.track_id, decision.reason ?? 'blocked');
+        }
+        break;
+
+      case 'launch': {
+        const trackId = decision.track_id!;
+        const track = state.tracks.find((t) => t.id === trackId)!;
+        const step = track.steps[track.current_step];
+
+        console.log(`Launching: ${track.name} - ${step.task_path}`);
+
+        const launchResult = await launchRun(step.task_path, repoPath, {
+          time: state.time_budget_minutes,
+          maxTicks: state.max_ticks,
+          allowDeps: false, // Default for resume
+          worktree: false,
+          fast: false,
+          forceParallel: state.collision_policy === 'force'
+        });
+
+        if ('error' in launchResult) {
+          console.error(`  Failed to launch: ${launchResult.error}`);
+          state = failTrack(state, trackId, launchResult.error);
+        } else {
+          console.log(`  Started run: ${launchResult.runId}`);
+          state = startTrackRun(state, trackId, launchResult.runId, launchResult.runDir);
+
+          const waitPromise = waitForRun(launchResult.runId, repoPath);
+          activeWaits.set(trackId, waitPromise);
+        }
+
+        saveState(state, repoPath);
+        break;
+      }
+
+      case 'wait':
+        if (activeWaits.size > 0) {
+          const entries = [...activeWaits.entries()];
+          const raceResult = await Promise.race(
+            entries.map(async ([trackId, promise]) => {
+              const result = await promise;
+              return { trackId, result };
+            })
+          );
+
+          const { trackId, result } = raceResult;
+          const track = state.tracks.find((t) => t.id === trackId)!;
+
+          console.log(`Completed: ${track.name} - ${result.status}`);
+          if (result.stop_reason) {
+            console.log(`  Stop reason: ${result.stop_reason}`);
+          }
+
+          state = completeTrackStep(state, trackId, result);
+          activeWaits.delete(trackId);
+          saveState(state, repoPath);
+        } else {
           await sleep(POLL_INTERVAL_MS);
         }
         break;

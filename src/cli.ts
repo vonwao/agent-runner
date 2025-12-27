@@ -11,7 +11,7 @@ import { doctorCommand } from './commands/doctor.js';
 import { followCommand, findBestRunToFollow } from './commands/follow.js';
 import { gcCommand } from './commands/gc.js';
 import { waitCommand, findLatestRunId as findLatestRunIdForWait } from './commands/wait.js';
-import { orchestrateCommand } from './commands/orchestrate.js';
+import { orchestrateCommand, resumeOrchestrationCommand } from './commands/orchestrate.js';
 import { CollisionPolicy } from './orchestrator/types.js';
 
 const program = new Command();
@@ -293,6 +293,18 @@ program
       worktree: options.worktree,
       fast: options.fast,
       dryRun: options.dryRun
+    });
+  });
+
+program
+  .command('orchestrate-resume')
+  .description('Resume a previously started orchestration')
+  .argument('<orchestratorId>', 'Orchestrator ID to resume (or "latest")')
+  .option('--repo <path>', 'Target repo path (default: current directory)', '.')
+  .action(async (orchestratorId: string, options) => {
+    await resumeOrchestrationCommand({
+      orchestratorId,
+      repo: options.repo
     });
   });
 
