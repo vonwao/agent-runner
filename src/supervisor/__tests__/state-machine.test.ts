@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { createInitialState, updatePhase, stopRun } from '../state-machine.js';
+import { createInitialState, updatePhase, stopRun, computeResumeTargetPhase, prepareForResume } from '../state-machine.js';
 
 describe('createInitialState', () => {
   it('creates state with INIT phase', () => {
@@ -202,5 +202,148 @@ describe('phase ordering', () => {
     expect(state.stop_reason).toBe('verification_failed');
     // last_successful_phase is set by updatePhase (previous phase), not stopRun
     expect(state.last_successful_phase).toBe('IMPLEMENT');
+  });
+});
+
+describe('computeResumeTargetPhase', () => {
+  it('returns current phase if not STOPPED', () => {
+    const state = createInitialState({
+      run_id: 'test',
+      repo_path: '/test',
+      task_text: 'Test',
+      allowlist: [],
+      denylist: []
+    });
+
+    const updated = updatePhase(state, 'IMPLEMENT');
+    expect(computeResumeTargetPhase(updated)).toBe('IMPLEMENT');
+  });
+
+  it('returns next phase after last_successful_phase when STOPPED', () => {
+    let state = createInitialState({
+      run_id: 'test',
+      repo_path: '/test',
+      task_text: 'Test',
+      allowlist: [],
+      denylist: []
+    });
+
+    state = updatePhase(state, 'PLAN');
+    state = updatePhase(state, 'IMPLEMENT');
+    state = updatePhase(state, 'VERIFY');
+    state = stopRun(state, 'stalled_timeout');
+
+    // last_successful_phase is IMPLEMENT (from the VERIFY transition)
+    expect(state.last_successful_phase).toBe('IMPLEMENT');
+    expect(computeResumeTargetPhase(state)).toBe('VERIFY');
+  });
+
+  it('returns INIT when STOPPED with no last_successful_phase', () => {
+    const state = createInitialState({
+      run_id: 'test',
+      repo_path: '/test',
+      task_text: 'Test',
+      allowlist: [],
+      denylist: []
+    });
+
+    const stopped = stopRun(state, 'guard_violation');
+    expect(computeResumeTargetPhase(stopped)).toBe('INIT');
+  });
+});
+
+describe('prepareForResume', () => {
+  it('clears stop state and sets resume phase', () => {
+    let state = createInitialState({
+      run_id: 'test',
+      repo_path: '/test',
+      task_text: 'Test',
+      allowlist: [],
+      denylist: []
+    });
+
+    // Simulate normal phase progression: INIT -> PLAN -> IMPLEMENT -> VERIFY
+    // Each updatePhase sets last_successful_phase to the PREVIOUS phase
+    state = updatePhase(state, 'PLAN');       // last_successful_phase = 'INIT'
+    state = updatePhase(state, 'IMPLEMENT');  // last_successful_phase = 'PLAN'
+    state = updatePhase(state, 'VERIFY');     // last_successful_phase = 'IMPLEMENT'
+    state = stopRun(state, 'stalled_timeout');
+    state = { ...state, last_error: 'Some error' };
+
+    const resumed = prepareForResume(state);
+
+    // Resume from phase after last_successful_phase ('IMPLEMENT' -> 'VERIFY')
+    expect(resumed.phase).toBe('VERIFY');
+    expect(resumed.stop_reason).toBeUndefined();
+    expect(resumed.last_error).toBeUndefined();
+    expect(resumed.resume_token).toBe('test');
+  });
+
+  it('increments auto_resume_count when requested', () => {
+    let state = createInitialState({
+      run_id: 'test',
+      repo_path: '/test',
+      task_text: 'Test',
+      allowlist: [],
+      denylist: []
+    });
+
+    state = stopRun(state, 'stalled_timeout');
+
+    const resumed = prepareForResume(state, { incrementAutoResumeCount: true });
+    expect(resumed.auto_resume_count).toBe(1);
+
+    // Resume again
+    const stoppedAgain = stopRun(resumed, 'worker_call_timeout');
+    const resumedAgain = prepareForResume(stoppedAgain, { incrementAutoResumeCount: true });
+    expect(resumedAgain.auto_resume_count).toBe(2);
+  });
+
+  it('preserves auto_resume_count when not incrementing', () => {
+    let state = createInitialState({
+      run_id: 'test',
+      repo_path: '/test',
+      task_text: 'Test',
+      allowlist: [],
+      denylist: []
+    });
+
+    state = { ...state, auto_resume_count: 3 };
+    state = stopRun(state, 'stalled_timeout');
+
+    const resumed = prepareForResume(state);
+    expect(resumed.auto_resume_count).toBe(3);
+  });
+
+  it('handles missing auto_resume_count (migration-safe)', () => {
+    let state = createInitialState({
+      run_id: 'test',
+      repo_path: '/test',
+      task_text: 'Test',
+      allowlist: [],
+      denylist: []
+    });
+
+    // Simulate old state without auto_resume_count
+    delete (state as any).auto_resume_count;
+    state = stopRun(state, 'stalled_timeout');
+
+    const resumed = prepareForResume(state, { incrementAutoResumeCount: true });
+    expect(resumed.auto_resume_count).toBe(1);
+  });
+
+  it('uses custom resumeToken when provided', () => {
+    let state = createInitialState({
+      run_id: 'original-run',
+      repo_path: '/test',
+      task_text: 'Test',
+      allowlist: [],
+      denylist: []
+    });
+
+    state = stopRun(state, 'stalled_timeout');
+
+    const resumed = prepareForResume(state, { resumeToken: 'custom-token' });
+    expect(resumed.resume_token).toBe('custom-token');
   });
 });

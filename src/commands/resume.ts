@@ -5,6 +5,7 @@ import { RunState } from '../types/schemas.js';
 import { AgentConfig, agentConfigSchema } from '../config/schema.js';
 import { loadConfig, resolveConfigPath } from '../config/load.js';
 import { runSupervisorLoop } from '../supervisor/runner.js';
+import { prepareForResume } from '../supervisor/state-machine.js';
 import { captureFingerprint, compareFingerprints, FingerprintDiff } from '../env/fingerprint.js';
 import { WorktreeInfo, validateWorktree, recreateWorktree, WorktreeRecreateResult } from '../repo/worktree.js';
 
@@ -16,6 +17,7 @@ export interface ResumeOptions {
   config?: string;
   force: boolean;
   repo: string;
+  autoResume: boolean;
 }
 
 /**
@@ -26,6 +28,7 @@ function formatResumeConfig(options: ResumeOptions): string {
     `run_id=${options.runId}`,
     `time=${options.time}min`,
     `ticks=${options.maxTicks}`,
+    `auto_resume=${options.autoResume ? 'on' : 'off'}`,
     `allow_deps=${options.allowDeps ? 'yes' : 'no'}`,
     `force=${options.force ? 'yes' : 'no'}`
   ];
@@ -148,27 +151,8 @@ export async function resumeCommand(options: ResumeOptions): Promise<void> {
     }
   }
 
-  // Determine the phase to resume from
-  let resumePhase = state.phase;
-  if (state.phase === 'STOPPED' && state.last_successful_phase) {
-    // Resume from the phase after the last successful one
-    const phaseOrder = ['INIT', 'PLAN', 'IMPLEMENT', 'VERIFY', 'REVIEW', 'CHECKPOINT'];
-    const lastIdx = phaseOrder.indexOf(state.last_successful_phase);
-    if (lastIdx >= 0 && lastIdx < phaseOrder.length - 1) {
-      resumePhase = phaseOrder[lastIdx + 1] as RunState['phase'];
-    } else {
-      resumePhase = state.last_successful_phase;
-    }
-  }
-
-  const updated: RunState = {
-    ...state,
-    phase: resumePhase,
-    resume_token: options.runId,
-    updated_at: new Date().toISOString(),
-    last_error: undefined,
-    stop_reason: undefined
-  };
+  // Use shared helper to prepare state for resume
+  const updated = prepareForResume(state, { resumeToken: options.runId });
 
   runStore.writeState(updated);
   runStore.appendEvent({
@@ -178,7 +162,9 @@ export async function resumeCommand(options: ResumeOptions): Promise<void> {
       run_id: options.runId,
       max_ticks: options.maxTicks,
       time: options.time,
-      allow_deps: options.allowDeps
+      allow_deps: options.allowDeps,
+      auto_resume: options.autoResume,
+      resume_phase: updated.phase
     }
   });
 
@@ -189,6 +175,7 @@ export async function resumeCommand(options: ResumeOptions): Promise<void> {
     config,
     timeBudgetMinutes: options.time,
     maxTicks: options.maxTicks,
-    allowDeps: options.allowDeps
+    allowDeps: options.allowDeps,
+    autoResume: options.autoResume
   });
 }

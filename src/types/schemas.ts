@@ -75,6 +75,8 @@ export interface RunState {
   last_progress_at?: string;
   stop_reason?: string;
   worker_stats: WorkerStats;
+  /** Count of auto-resumes for this run (migration-safe: defaults to 0 if absent) */
+  auto_resume_count?: number;
 }
 
 export type WorkerStatus = 'ok' | 'blocked' | 'failed';

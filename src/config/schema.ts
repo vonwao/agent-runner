@@ -58,13 +58,29 @@ const phasesSchema = z.object({
   review: z.enum(['claude', 'codex']).default('claude')
 });
 
+// Resilience settings for auto-resume and failure recovery
+const resilienceSchema = z.object({
+  /** Enable automatic resume on transient failures (stall, worker timeout) */
+  auto_resume: z.boolean().default(false),
+  /** Maximum number of auto-resumes per run (conservative default: 1) */
+  max_auto_resumes: z.number().int().nonnegative().default(1),
+  /** Backoff delays in ms between auto-resume attempts (must be positive integers) */
+  auto_resume_delays_ms: z
+    .array(z.number().int().positive())
+    .nonempty()
+    .default([30000, 120000, 300000]), // 30s, 2min, 5min
+  /** Hard cap on worker call duration in minutes (kills hung workers) */
+  max_worker_call_minutes: z.number().int().positive().default(45)
+});
+
 export const agentConfigSchema = z.object({
   agent: agentSchema,
   repo: repoSchema.default({}),
   scope: scopeSchema,
   verification: verificationSchema,
   workers: workersSchema.default({}),
-  phases: phasesSchema.default({})
+  phases: phasesSchema.default({}),
+  resilience: resilienceSchema.default({})
 });
 
 export type PhasesConfig = z.infer<typeof phasesSchema>;

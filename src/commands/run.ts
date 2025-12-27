@@ -28,6 +28,7 @@ export interface RunOptions {
   freshTarget: boolean;
   worktree: boolean;
   fast: boolean;
+  autoResume: boolean;
 }
 
 function makeRunId(): string {
@@ -100,6 +101,7 @@ function formatEffectiveConfig(options: RunOptions): string {
     `ticks=${options.maxTicks}`,
     `worktree=${options.worktree ? 'on' : 'off'}`,
     `fast=${options.fast ? 'on' : 'off'}`,
+    `auto_resume=${options.autoResume ? 'on' : 'off'}`,
     `context_pack=${contextPack}`,
     `allow_deps=${options.allowDeps ? 'yes' : 'no'}`
   ];
@@ -433,7 +435,8 @@ export async function runCommand(options: RunOptions): Promise<void> {
       timeBudgetMinutes: options.time,
       maxTicks: options.maxTicks,
       allowDeps: options.allowDeps,
-      fast: options.fast
+      fast: options.fast,
+      autoResume: options.autoResume
     });
   }
 

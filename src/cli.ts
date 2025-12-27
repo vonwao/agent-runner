@@ -34,6 +34,7 @@ program
   .option('--fresh-target', 'Wipe target root before starting', false)
   .option('--worktree', 'Create isolated git worktree for this run', false)
   .option('--fast', 'Fast path: skip PLAN and REVIEW phases for small tasks', false)
+  .option('--auto-resume', 'Auto-resume on transient failures (stall, worker timeout)', false)
   .action(async (options) => {
     const noBranch = options.branch === false;
     const noWrite = options.write === false;
@@ -52,7 +53,8 @@ program
       skipDoctor: options.skipDoctor,
       freshTarget: options.freshTarget,
       worktree: options.worktree,
-      fast: options.fast
+      fast: options.fast,
+      autoResume: options.autoResume
     });
   });
 
@@ -85,6 +87,7 @@ program
   .option('--allow-deps', 'Allow lockfile changes', false)
   .option('--config <path>', 'Path to agent.config.json')
   .option('--force', 'Resume despite env fingerprint mismatch', false)
+  .option('--auto-resume', 'Continue auto-resuming on transient failures', false)
   .action(async (runId: string, options) => {
     await resumeCommand({
       runId,
@@ -93,7 +96,8 @@ program
       maxTicks: Number.parseInt(options.maxTicks, 10),
       allowDeps: options.allowDeps,
       config: options.config,
-      force: options.force
+      force: options.force,
+      autoResume: options.autoResume
     });
   });
 

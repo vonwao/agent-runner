@@ -78,3 +78,67 @@ export function stopRun(state: RunState, reason: string): RunState {
     phase_started_at: now
   };
 }
+
+/**
+ * Canonical phase order for determining resume target.
+ * Used by both manual resume command and auto-resume.
+ */
+const PHASE_ORDER = ['INIT', 'PLAN', 'IMPLEMENT', 'VERIFY', 'REVIEW', 'CHECKPOINT', 'FINALIZE'] as const;
+
+/**
+ * Compute the target phase to resume from based on last successful phase.
+ * Shared between resume command and auto-resume to prevent drift.
+ *
+ * Logic:
+ * - If STOPPED with last_successful_phase, resume from phase after that
+ * - If at FINALIZE, stay at FINALIZE
+ * - Otherwise use current phase (for non-STOPPED states)
+ */
+export function computeResumeTargetPhase(state: RunState): RunState['phase'] {
+  // If not stopped, just use current phase
+  if (state.phase !== 'STOPPED') {
+    return state.phase;
+  }
+
+  // If we have a last successful phase, resume from the next one
+  if (state.last_successful_phase) {
+    const lastIdx = PHASE_ORDER.indexOf(state.last_successful_phase as typeof PHASE_ORDER[number]);
+    if (lastIdx >= 0 && lastIdx < PHASE_ORDER.length - 1) {
+      return PHASE_ORDER[lastIdx + 1] as RunState['phase'];
+    }
+    // At FINALIZE or beyond, stay there
+    return state.last_successful_phase;
+  }
+
+  // No last successful phase, start from INIT
+  return 'INIT';
+}
+
+/**
+ * Prepare state for resumption (manual or auto).
+ * Clears stop state, sets resume phase, optionally increments auto_resume_count.
+ */
+export function prepareForResume(
+  state: RunState,
+  options: {
+    incrementAutoResumeCount?: boolean;
+    resumeToken?: string;
+  } = {}
+): RunState {
+  const now = new Date().toISOString();
+  const targetPhase = computeResumeTargetPhase(state);
+  const autoResumeCount = state.auto_resume_count ?? 0;
+
+  return {
+    ...state,
+    phase: targetPhase,
+    stop_reason: undefined,
+    last_error: undefined,
+    resume_token: options.resumeToken ?? state.run_id,
+    updated_at: now,
+    phase_started_at: now,
+    auto_resume_count: options.incrementAutoResumeCount
+      ? autoResumeCount + 1
+      : autoResumeCount
+  };
+}

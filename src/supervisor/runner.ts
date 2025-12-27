@@ -25,7 +25,28 @@ import { parseJsonWithSchema } from '../workers/json.js';
 import { checkLockfiles, checkScope } from './scope-guard.js';
 import { commandsForTier, selectTiersWithReasons } from './verification-policy.js';
 import { runVerification } from '../verification/engine.js';
-import { stopRun, updatePhase } from './state-machine.js';
+import { stopRun, updatePhase, prepareForResume } from './state-machine.js';
+
+/**
+ * Stop reasons that are eligible for auto-resume.
+ * These represent transient/infrastructure failures, not logic errors.
+ *
+ * Explicitly NOT included:
+ * - time_budget_exceeded: Creates "budget treadmill" if resumed
+ * - verification_failed_max_retries: Real code issue
+ * - guard_violation: Real scope/policy issue
+ * - implement_blocked: Worker can't proceed
+ * - *_parse_failed: Persistent format issues
+ * - complete: Success, nothing to resume
+ */
+const AUTO_RESUMABLE_REASONS = new Set([
+  'stalled_timeout',
+  'worker_call_timeout'
+]);
+
+function isAutoResumable(reason: string | undefined): boolean {
+  return reason !== undefined && AUTO_RESUMABLE_REASONS.has(reason);
+}
 
 /**
  * Maximum number of verification retry attempts per milestone before stopping.
@@ -77,6 +98,8 @@ export interface SupervisorOptions {
   allowDeps: boolean;
   /** Fast path mode: skip PLAN and REVIEW phases */
   fast?: boolean;
+  /** Enable automatic resume on transient failures (CLI flag overrides config) */
+  autoResume?: boolean;
 }
 
 const DEFAULT_STOP_MEMO = [
@@ -129,6 +152,7 @@ function buildStructuredStopMemo(params: StopMemoParams): string {
     time_budget_exceeded: 'Time budget was exhausted before completing all milestones.',
     max_ticks_reached: 'Maximum phase transitions (ticks) reached before completion.',
     stalled_timeout: 'No progress detected for too long (worker may have hung).',
+    worker_call_timeout: 'Worker call exceeded maximum duration hard cap.',
     verification_failed_max_retries: 'Verification failed too many times on the same milestone.',
     implement_blocked: 'Implementer reported it could not proceed.',
     guard_violation: 'Changes violated scope or lockfile constraints.',
@@ -142,6 +166,7 @@ function buildStructuredStopMemo(params: StopMemoParams): string {
     time_budget_exceeded: 'Task took longer than expected, or time budget was too short.',
     max_ticks_reached: 'Complex task with many iterations, or tick budget was too low.',
     stalled_timeout: 'Worker CLI hung, network issues, or API timeout.',
+    worker_call_timeout: 'Worker process hung indefinitely. Check worker CLI health with `agent doctor`.',
     verification_failed_max_retries: 'Code changes broke tests/lint and fixes kept failing.',
     implement_blocked: 'Missing dependencies, unclear requirements, or environment issue.',
     guard_violation: 'Implementer modified files outside allowed scope.',
@@ -180,6 +205,13 @@ function buildStructuredStopMemo(params: StopMemoParams): string {
     lines.push('', '## Last Error', '```', lastError.slice(0, 500), '```');
   }
 
+  const tipsByReason: Record<string, string> = {
+    time_budget_exceeded: '- Consider increasing --time if task is complex',
+    max_ticks_reached: '- ~5 ticks per milestone is typical. Increase --max-ticks for complex tasks.',
+    stalled_timeout: '- Check if workers are authenticated. Run `agent-run doctor` to diagnose.',
+    worker_call_timeout: '- Worker hung indefinitely. Check API status, network, and run `agent-run doctor`.'
+  };
+
   lines.push(
     '',
     '## Next Action',
@@ -188,20 +220,120 @@ function buildStructuredStopMemo(params: StopMemoParams): string {
     '```',
     '',
     '## Tips',
-    reason === 'time_budget_exceeded'
-      ? '- Consider increasing --time if task is complex'
-      : reason === 'max_ticks_reached'
-      ? '- ~5 ticks per milestone is typical. Increase --max-ticks for complex tasks.'
-      : reason === 'stalled_timeout'
-      ? '- Check if workers are authenticated. Run `agent-run doctor` to diagnose.'
-      : '- Review the timeline.jsonl for detailed event history.'
+    tipsByReason[reason] ?? '- Review the timeline.jsonl for detailed event history.'
   );
 
   return lines.join('\n');
 }
 
 /**
- * Main supervisor loop that orchestrates the agent through phases.
+ * Main supervisor entry point with auto-resume support.
+ *
+ * Wraps runSupervisorOnce with a while loop that automatically resumes
+ * on transient failures (stall_timeout, worker_call_timeout) up to a configured limit.
+ *
+ * Auto-resume is enabled if:
+ * - options.autoResume is true (CLI flag), OR
+ * - config.resilience.auto_resume is true (config file)
+ *
+ * @param options - Supervisor configuration including run store, config, and budgets
+ */
+export async function runSupervisorLoop(options: SupervisorOptions): Promise<void> {
+  // Determine if auto-resume is enabled (CLI flag overrides config)
+  const autoResumeEnabled = options.autoResume ?? options.config.resilience?.auto_resume ?? false;
+
+  if (!autoResumeEnabled) {
+    // No auto-resume, just run once
+    await runSupervisorOnce(options);
+    return;
+  }
+
+  const maxResumes = options.config.resilience?.max_auto_resumes ?? 1;
+  const delays = options.config.resilience?.auto_resume_delays_ms ?? [30000, 120000, 300000];
+
+  // Auto-resume loop
+  while (true) {
+    await runSupervisorOnce(options);
+
+    // Check final state after loop completes
+    const finalState = options.runStore.readState();
+    const stopReason = finalState.stop_reason;
+    const autoResumeCount = finalState.auto_resume_count ?? 0;
+
+    // Check if this stop reason is auto-resumable
+    if (!isAutoResumable(stopReason)) {
+      if (stopReason && stopReason !== 'complete') {
+        options.runStore.appendEvent({
+          type: 'auto_resume_skipped',
+          source: 'supervisor',
+          payload: {
+            reason: stopReason,
+            resumable: false,
+            auto_resume_count: autoResumeCount
+          }
+        });
+      }
+      break;
+    }
+
+    // Check if we've hit the auto-resume cap
+    if (autoResumeCount >= maxResumes) {
+      options.runStore.appendEvent({
+        type: 'auto_resume_exhausted',
+        source: 'supervisor',
+        payload: {
+          count: autoResumeCount,
+          max: maxResumes,
+          reason: stopReason
+        }
+      });
+      console.log(`\nAuto-resume cap reached (${autoResumeCount}/${maxResumes}). Manual intervention required.`);
+      console.log(`Tip: Use \`agent-run resume ${finalState.run_id}\` to continue manually.\n`);
+      break;
+    }
+
+    // Calculate backoff delay
+    const delayMs = delays[Math.min(autoResumeCount, delays.length - 1)];
+
+    options.runStore.appendEvent({
+      type: 'auto_resume_scheduled',
+      source: 'supervisor',
+      payload: {
+        attempt: autoResumeCount + 1,
+        max: maxResumes,
+        delay_ms: delayMs,
+        reason: stopReason,
+        previous_stop_reason: stopReason,
+        resume_phase: finalState.last_successful_phase
+      }
+    });
+
+    console.log(`\nAuto-resuming in ${Math.round(delayMs / 1000)}s (attempt ${autoResumeCount + 1}/${maxResumes})...`);
+
+    await sleep(delayMs);
+
+    // Prepare state for resume
+    const resumedState = prepareForResume(finalState, { incrementAutoResumeCount: true });
+    options.runStore.writeState(resumedState);
+
+    options.runStore.appendEvent({
+      type: 'auto_resume_started',
+      source: 'supervisor',
+      payload: {
+        attempt: autoResumeCount + 1,
+        run_id: finalState.run_id,
+        previous_stop_reason: stopReason,
+        resume_phase: resumedState.phase
+      }
+    });
+
+    console.log(`Auto-resume started. Resuming from phase: ${resumedState.phase}\n`);
+    // Loop continues, runSupervisorOnce will be called again
+  }
+}
+
+/**
+ * Single execution of the supervisor loop (no auto-resume).
  *
  * Executes up to `maxTicks` phase transitions, stopping early if:
  * - Time budget is exceeded
@@ -212,7 +344,7 @@ function buildStructuredStopMemo(params: StopMemoParams): string {
  *
  * @param options - Supervisor configuration including run store, config, and budgets
  */
-export async function runSupervisorLoop(options: SupervisorOptions): Promise<void> {
+async function runSupervisorOnce(options: SupervisorOptions): Promise<void> {
   const startTime = Date.now();
   const stallTimeoutMs = resolveStallTimeoutMs(options.config);
   let lastProgressAt = Date.now();
@@ -232,6 +364,9 @@ export async function runSupervisorLoop(options: SupervisorOptions): Promise<voi
   // Configurable via WORKER_TIMEOUT_MINUTES env var (default: 30min or 2x stall timeout)
   const workerTimeoutMs = resolveWorkerTimeoutMs(stallTimeoutMs);
 
+  // Hard cap on worker call duration (prevents infinite in-flight)
+  const maxWorkerCallMs = (options.config.resilience?.max_worker_call_minutes ?? 45) * 60 * 1000;
+
   const watchdog = setInterval(() => {
     if (stalled) return;
 
@@ -241,9 +376,42 @@ export async function runSupervisorLoop(options: SupervisorOptions): Promise<voi
     // Check if worker is in-flight (started after last progress)
     let workerInFlight = false;
     let workerStartedAt = 0;
+    let workerCallDurationMs = 0;
     if (lastWorkerCall?.at) {
       workerStartedAt = new Date(lastWorkerCall.at).getTime();
       workerInFlight = workerStartedAt > lastProgressAt;
+      workerCallDurationMs = Date.now() - workerStartedAt;
+    }
+
+    // Hard cap: if worker call exceeds max duration, force stop
+    // This catches hung workers that never return
+    if (workerInFlight && workerCallDurationMs >= maxWorkerCallMs) {
+      stalled = true;
+      const current = options.runStore.readState();
+      const stopped = stopRun(current, 'worker_call_timeout');
+      options.runStore.writeState(stopped);
+      options.runStore.appendEvent({
+        type: 'stop',
+        source: 'supervisor',
+        payload: {
+          reason: 'worker_call_timeout',
+          phase: current.phase,
+          milestone_index: current.milestone_index,
+          last_worker_call: lastWorkerCall,
+          worker_call_duration_ms: workerCallDurationMs,
+          max_worker_call_ms: maxWorkerCallMs
+        }
+      });
+      const memo = buildStructuredStopMemo({
+        reason: 'worker_call_timeout',
+        runId: current.run_id,
+        phase: current.phase,
+        milestoneIndex: current.milestone_index,
+        milestonesTotal: current.milestones.length,
+        lastError: `Worker call exceeded ${options.config.resilience?.max_worker_call_minutes ?? 45} minute hard cap`
+      });
+      writeStopMemo(options.runStore, memo);
+      return;
     }
 
     const elapsedMs = Date.now() - lastProgressAt;
