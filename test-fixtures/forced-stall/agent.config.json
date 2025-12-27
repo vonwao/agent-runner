@@ -1,0 +1,27 @@
+{
+  "agent": {
+    "name": "forced-stall-test",
+    "version": "1"
+  },
+  "scope": {
+    "allowlist": ["**"],
+    "denylist": ["node_modules/**"]
+  },
+  "verification": {
+    "tier0": ["echo 'verify ok'"],
+    "tier1": [],
+    "tier2": [],
+    "max_verify_time_per_milestone": 10
+  },
+  "phases": {
+    "plan": "claude",
+    "implement": "codex",
+    "review": "claude"
+  },
+  "resilience": {
+    "auto_resume": true,
+    "max_auto_resumes": 1,
+    "auto_resume_delays_ms": [100, 200, 500],
+    "max_worker_call_minutes": 0.2
+  }
+}

@@ -2,7 +2,7 @@
 import { Command } from 'commander';
 import { runCommand } from './commands/run.js';
 import { resumeCommand } from './commands/resume.js';
-import { statusCommand } from './commands/status.js';
+import { statusCommand, statusAllCommand } from './commands/status.js';
 import { reportCommand, findLatestRunId } from './commands/report.js';
 import { summarizeCommand } from './commands/summarize.js';
 import { compareCommand } from './commands/compare.js';
@@ -103,10 +103,18 @@ program
 
 program
   .command('status')
-  .argument('<runId>', 'Run ID')
+  .argument('[runId]', 'Run ID (omit with --all to show all runs)')
   .option('--repo <path>', 'Target repo path (default: current directory)', '.')
-  .action(async (runId: string, options) => {
-    await statusCommand({ runId, repo: options.repo });
+  .option('--all', 'Show status of all runs', false)
+  .action(async (runId: string | undefined, options) => {
+    if (options.all) {
+      await statusAllCommand({ repo: options.repo });
+    } else if (runId) {
+      await statusCommand({ runId, repo: options.repo });
+    } else {
+      console.error('Error: Run ID required unless using --all');
+      process.exit(1);
+    }
   });
 
 program

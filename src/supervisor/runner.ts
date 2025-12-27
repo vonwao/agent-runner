@@ -16,6 +16,7 @@ import {
 } from '../context/index.js';
 import { runClaude } from '../workers/claude.js';
 import { runCodex } from '../workers/codex.js';
+import { isMockWorkerEnabled, runMockWorker } from '../workers/mock.js';
 import {
   implementerOutputSchema,
   planOutputSchema,
@@ -1337,13 +1338,23 @@ async function runWorkerWithRetries<S extends z.ZodTypeAny>(input: {
   worker: 'claude' | 'codex';
 }> {
   const worker = input.workers[input.workerType];
-  const runWorker = input.workerType === 'claude' ? runClaude : runCodex;
+
+  // Use mock worker if enabled (for testing stall detection)
+  const useMock = isMockWorkerEnabled();
+  const runWorker = useMock
+    ? runMockWorker
+    : (input.workerType === 'claude' ? runClaude : runCodex);
   const rawOutputs: string[] = [];
   let lastError: string | undefined;
   let lastOutput: string | undefined;
 
   for (let attempt = 0; attempt <= RETRY_DELAYS_MS.length; attempt++) {
     if (attempt > 0) {
+      // Check if run was stopped by watchdog before retrying
+      const currentState = input.runStore.readState();
+      if (currentState.phase === 'STOPPED') {
+        break;
+      }
       const delayMs = jitter(RETRY_DELAYS_MS[attempt - 1]);
       await sleep(delayMs);
     }
@@ -1361,6 +1372,13 @@ async function runWorkerWithRetries<S extends z.ZodTypeAny>(input: {
       repo_path: input.repoPath,
       worker
     });
+
+    // Check if run was stopped by watchdog during worker call
+    const postCallState = input.runStore.readState();
+    if (postCallState.phase === 'STOPPED') {
+      break;
+    }
+
     const output = runResult.observations.join('\n');
     rawOutputs.push(output);
     lastOutput = output;

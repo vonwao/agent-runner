@@ -69,8 +69,8 @@ const resilienceSchema = z.object({
     .array(z.number().int().positive())
     .nonempty()
     .default([30000, 120000, 300000]), // 30s, 2min, 5min
-  /** Hard cap on worker call duration in minutes (kills hung workers) */
-  max_worker_call_minutes: z.number().int().positive().default(45)
+  /** Hard cap on worker call duration in minutes (kills hung workers). Supports decimals for testing. */
+  max_worker_call_minutes: z.number().positive().default(45)
 });
 
 export const agentConfigSchema = z.object({
