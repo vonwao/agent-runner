@@ -1,0 +1,38 @@
+{
+  "orchestrator_id": "orch20251228040158",
+  "repo_path": "/Users/vonwao/dev/agent-framework",
+  "tracks": [
+    {
+      "id": "track-1",
+      "name": "metrics-field",
+      "steps": [
+        {
+          "task_path": "dogfood/tasks/df01-add-metrics-field.md",
+          "allowlist": [
+            "src/commands/metrics.ts"
+          ]
+        }
+      ],
+      "current_step": 0,
+      "status": "failed",
+      "error": "file:///Users/vonwao/dev/agent-framework/dist/config/load.js:13\n        throw new Error(`Config not found: ${configPath}`);\n              ^\n\nError: Config not found: /Users/vonwao/dev/agent-framework/.agent/agent.config.json\n    at loadConfig (file:///Users/vonwao/dev/agent-framework/dist/config/load.js:13:15)\n    at runCommand (file:///Users/vonwao/dev/agent-framework/dist/commands/run.js:133:20)\n    at Command.<anonymous> (file:///Users/vonwao/dev/agent-framework/dist/cli.js:45:11)\n    at Command.listener [as _actionHandler] (/Users/vonwao/dev/agent-framework/node_modules/commander/lib/command.js:542:17)\n    at /Users/vonwao/dev/agent-framework/node_modules/commander/lib/command.js:1502:14\n    at Command._chainOrCall (/Users/vonwao/dev/agent-framework/node_modules/commander/lib/command.js:1386:12)\n    at Command._parseCommand (/Users/vonwao/dev/agent-framework/node_modules/commander/lib/command.js:1501:27)\n    at /Users/vonwao/dev/agent-framework/node_modules/commander/lib/command.js:1265:27\n    at Command._chainOrCall (/Users/vonwao/dev/agent-framework/node_modules/commander/lib/command.js:1386:12)\n    at Command._dispatchSubcommand (/Users/vonwao/dev/agent-framework/node_modules/commander/lib/command.js:1261:25)\n\nNode.js v22.19.0"
+    }
+  ],
+  "active_runs": {},
+  "file_claims": {},
+  "status": "failed",
+  "started_at": "2025-12-28T04:01:58.348Z",
+  "policy": {
+    "collision_policy": "serialize",
+    "parallel": 1,
+    "fast": false,
+    "auto_resume": false,
+    "time_budget_minutes": 120,
+    "max_ticks": 50
+  },
+  "collision_policy": "serialize",
+  "time_budget_minutes": 120,
+  "max_ticks": 50,
+  "fast": false,
+  "ended_at": "2025-12-28T04:02:01.687Z"
+}

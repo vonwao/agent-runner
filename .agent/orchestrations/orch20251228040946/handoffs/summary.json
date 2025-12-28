@@ -1,0 +1,33 @@
+{
+  "schema_version": 1,
+  "orchestrator_id": "orch20251228040946",
+  "status": "complete",
+  "repo_root": "/Users/vonwao/dev/agent-framework",
+  "started_at": "2025-12-28T04:09:46.271Z",
+  "ended_at": "2025-12-28T04:13:04.859Z",
+  "elapsed_ms": 198588,
+  "policy": {
+    "collision_policy": "serialize",
+    "time_budget_minutes": 120,
+    "max_ticks": 50
+  },
+  "tracks": [
+    {
+      "track_id": "track-1",
+      "name": "version-short",
+      "status": "complete",
+      "steps": [
+        {
+          "index": 0,
+          "task": "dogfood/tasks/df02-add-version-flag.md",
+          "run_id": "20251228041003",
+          "status": "complete"
+        }
+      ]
+    }
+  ],
+  "collisions": [],
+  "next_action": {
+    "kind": "none"
+  }
+}

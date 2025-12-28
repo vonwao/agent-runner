@@ -1,0 +1,36 @@
+{
+  "orchestrator_id": "orch20251228035956",
+  "repo_path": "/Users/vonwao/dev/agent-framework",
+  "tracks": [
+    {
+      "id": "track-1",
+      "name": "metrics-field",
+      "steps": [
+        {
+          "task_path": "dogfood/tasks/df01-add-metrics-field.md",
+          "allowlist": [
+            "src/commands/metrics.ts"
+          ]
+        }
+      ],
+      "current_step": 0,
+      "status": "pending"
+    }
+  ],
+  "active_runs": {},
+  "file_claims": {},
+  "status": "stopped",
+  "started_at": "2025-12-28T03:59:56.721Z",
+  "policy": {
+    "collision_policy": "serialize",
+    "parallel": 1,
+    "fast": false,
+    "auto_resume": false,
+    "time_budget_minutes": 120,
+    "max_ticks": 50
+  },
+  "collision_policy": "serialize",
+  "time_budget_minutes": 120,
+  "max_ticks": 50,
+  "fast": false
+}

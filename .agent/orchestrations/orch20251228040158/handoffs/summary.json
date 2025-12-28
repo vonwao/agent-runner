@@ -1,0 +1,33 @@
+{
+  "schema_version": 1,
+  "orchestrator_id": "orch20251228040158",
+  "status": "stopped",
+  "repo_root": "/Users/vonwao/dev/agent-framework",
+  "started_at": "2025-12-28T04:01:58.348Z",
+  "ended_at": "2025-12-28T04:02:01.687Z",
+  "elapsed_ms": 3339,
+  "policy": {
+    "collision_policy": "serialize",
+    "time_budget_minutes": 120,
+    "max_ticks": 50
+  },
+  "tracks": [
+    {
+      "track_id": "track-1",
+      "name": "metrics-field",
+      "status": "failed",
+      "steps": [
+        {
+          "index": 0,
+          "task": "dogfood/tasks/df01-add-metrics-field.md",
+          "status": "pending"
+        }
+      ]
+    }
+  ],
+  "collisions": [],
+  "next_action": {
+    "kind": "resume_orchestrator",
+    "command": "agent orchestrate resume orch20251228040158 --repo /Users/vonwao/dev/agent-framework"
+  }
+}
