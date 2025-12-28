@@ -2,6 +2,8 @@
   "mock_worker_mode": "timeout_once_then_ok",
   "extra_args": ["--auto-resume"],
   "env": {
-    "STALL_TIMEOUT_MINUTES": "1"
+    "AGENT_STALL_TIMEOUT_MS": "1000",
+    "AGENT_WORKER_CALL_TIMEOUT_MS": "3000",
+    "AGENT_MOCK_TIMEOUT_MS": "2000"
   }
 }

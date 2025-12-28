@@ -136,9 +136,10 @@ export async function runMockWorker(input: WorkerRunInput): Promise<WorkerResult
     case 'timeout_once_then_ok':
       // First call times out (for auto-resume testing), subsequent calls succeed
       if (callCount === 1) {
-        console.log('[mock-worker] First call - sleeping 65s to trigger stall timeout...');
-        // Wait long enough to trigger stall timeout (tests set STALL_TIMEOUT_MINUTES=1)
-        await new Promise(resolve => setTimeout(resolve, 65000));
+        // Use AGENT_MOCK_TIMEOUT_MS for fast testing, default to 65s for compatibility
+        const timeoutMs = Number.parseInt(process.env.AGENT_MOCK_TIMEOUT_MS ?? '', 10) || 65000;
+        console.log(`[mock-worker] First call - sleeping ${timeoutMs}ms to trigger stall timeout...`);
+        await new Promise(resolve => setTimeout(resolve, timeoutMs));
         return {
           status: 'failed',
           commands_run: ['mock-worker'],

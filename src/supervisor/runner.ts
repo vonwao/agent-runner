@@ -67,23 +67,47 @@ const MAX_MILESTONE_RETRIES = 3;
 const DEFAULT_STALL_TIMEOUT_MINUTES = 15;
 const DEFAULT_WORKER_TIMEOUT_MINUTES = 30;
 
+/**
+ * Resolve stall timeout in milliseconds.
+ * Priority: AGENT_STALL_TIMEOUT_MS > STALL_TIMEOUT_MINUTES > config-based default
+ */
 function resolveStallTimeoutMs(config: AgentConfig): number {
+  // Direct millisecond override (for fast testing)
+  const msValue = Number.parseInt(process.env.AGENT_STALL_TIMEOUT_MS ?? '', 10);
+  if (Number.isFinite(msValue) && msValue > 0) {
+    return msValue;
+  }
+
+  // Minutes-based override
   const envValue = Number.parseInt(process.env.STALL_TIMEOUT_MINUTES ?? '', 10);
   if (Number.isFinite(envValue) && envValue > 0) {
     return envValue * 60 * 1000;
   }
 
+  // Config-based default: max(15min, verify_time + 5min)
   const verifyMinutes = Math.ceil(config.verification.max_verify_time_per_milestone / 60);
   const fallbackMinutes = Math.max(DEFAULT_STALL_TIMEOUT_MINUTES, verifyMinutes + 5);
   return fallbackMinutes * 60 * 1000;
 }
 
+/**
+ * Resolve worker call timeout in milliseconds.
+ * Priority: AGENT_WORKER_CALL_TIMEOUT_MS > WORKER_TIMEOUT_MINUTES > computed default
+ */
 function resolveWorkerTimeoutMs(stallTimeoutMs: number): number {
+  // Direct millisecond override (for fast testing)
+  const msValue = Number.parseInt(process.env.AGENT_WORKER_CALL_TIMEOUT_MS ?? '', 10);
+  if (Number.isFinite(msValue) && msValue > 0) {
+    return msValue;
+  }
+
+  // Minutes-based override
   const envValue = Number.parseInt(process.env.WORKER_TIMEOUT_MINUTES ?? '', 10);
   if (Number.isFinite(envValue) && envValue > 0) {
     return envValue * 60 * 1000;
   }
-  // Default: use WORKER_TIMEOUT_MINUTES default, or 2x stall timeout if stall is already high
+
+  // Default: max(30min, 2x stall timeout)
   const defaultMs = DEFAULT_WORKER_TIMEOUT_MINUTES * 60 * 1000;
   return Math.max(defaultMs, stallTimeoutMs * 2);
 }
