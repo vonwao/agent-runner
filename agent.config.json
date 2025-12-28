@@ -7,14 +7,14 @@
     "default_branch": "main"
   },
   "scope": {
-    "allowlist": ["src/**", "tests/**", "docs/**"],
+    "allowlist": ["src/**", "tests/**", "docs/**", "dogfood/**"],
     "denylist": ["infra/**", "migrations/**"],
     "lockfiles": ["package-lock.json", "pnpm-lock.yaml", "yarn.lock"]
   },
   "verification": {
-    "tier0": ["pnpm build"],
-    "tier1": ["pnpm test"],
-    "tier2": ["pnpm test"],
+    "tier0": ["npm run build"],
+    "tier1": ["npm test"],
+    "tier2": ["npm test"],
     "risk_triggers": [
       {
         "name": "deps",

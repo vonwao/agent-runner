@@ -1,0 +1,9 @@
+# Dogfood 03: Extract formatDuration to shared utility
+# Single track - creates new files + updates existing
+tracks:
+  - name: "format-utility"
+    steps:
+      - task: dogfood/tasks/df03-format-duration-helper.md
+        allowlist:
+          - "src/utils/**"
+          - "src/commands/metrics.ts"

@@ -1,0 +1,8 @@
+# Dogfood 01: Add worker_errors metric field
+# Single track, single step - baseline stability test
+tracks:
+  - name: "metrics-field"
+    steps:
+      - task: dogfood/tasks/df01-add-metrics-field.md
+        allowlist:
+          - "src/commands/metrics.ts"

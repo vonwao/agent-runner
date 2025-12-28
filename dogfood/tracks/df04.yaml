@@ -1,0 +1,8 @@
+# Dogfood 04: Document timeout environment variables
+# Single track - docs only (tests fast path for no-code changes)
+tracks:
+  - name: "docs-timeout"
+    steps:
+      - task: dogfood/tasks/df04-document-timeout-env-vars.md
+        allowlist:
+          - "docs/**"

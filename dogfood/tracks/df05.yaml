@@ -1,0 +1,8 @@
+# Dogfood 05: Add validation for --window option
+# Single track - small CLI validation
+tracks:
+  - name: "validate-window"
+    steps:
+      - task: dogfood/tasks/df05-validate-window-option.md
+        allowlist:
+          - "src/cli.ts"

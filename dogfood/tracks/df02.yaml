@@ -1,0 +1,9 @@
+# Dogfood 02: Add --short flag to version command
+# Single track, single step - touches CLI + command
+tracks:
+  - name: "version-short"
+    steps:
+      - task: dogfood/tasks/df02-add-version-flag.md
+        allowlist:
+          - "src/cli.ts"
+          - "src/commands/version.ts"
