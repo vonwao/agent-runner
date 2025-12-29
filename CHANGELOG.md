@@ -7,6 +7,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.1] - 2025-12-29
+
+Adoption improvements: scope presets, better diagnostics, and OSS packaging.
+
+### Added
+
+- **Scope presets**: Named pattern collections for popular frameworks
+  - 11 presets: `nextjs`, `react`, `drizzle`, `prisma`, `vitest`, `jest`, `playwright`, `typescript`, `tailwind`, `eslint`, `env`
+  - Use via `scope.presets: ["vitest", "nextjs"]` in config
+  - Patterns merged into allowlist at config load time
+  - Unknown presets warn but don't fail
+
+- **Review digest artifact**: `review_digest.md` written when `review_loop_detected` stops a run
+  - Contains milestone context, review round count, full list of requested changes
+  - Makes debugging review loops much easier
+
+- **Preset suggestions**: `plan_scope_violation` errors now suggest relevant presets
+  - e.g., "Try adding presets: [vitest] to scope.presets"
+
+### Documentation
+
+- **README.md**: Quick start, configuration, CLI reference, stop reasons
+- **LICENSE**: MIT license
+- **CONTRIBUTING.md**: Development workflow, code style, PR process, architecture overview
+- **docs/PILOT_PROGRAM.md**: Early adopter onboarding guide
+
+### Improved
+
+- Stop memo now includes descriptions and tips for `review_loop_detected` and `plan_scope_violation`
+
 ## [0.2.0] - 2025-12-28
 
 Resilience improvements based on dogfooding feedback.
@@ -91,6 +121,7 @@ Initial stable release with full dual-LLM orchestration and autonomy features.
 - Worktree strategy documentation
 - CLI reference
 
-[Unreleased]: https://github.com/user/agent-runner/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/user/agent-runner/compare/v0.2.1...HEAD
+[0.2.1]: https://github.com/user/agent-runner/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/user/agent-runner/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/user/agent-runner/releases/tag/v0.1.0
