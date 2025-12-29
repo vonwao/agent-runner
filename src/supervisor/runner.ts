@@ -3,7 +3,7 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import { z } from 'zod';
 import picomatch from 'picomatch';
-import { AgentConfig } from '../config/schema.js';
+import { AgentConfig, SCOPE_PRESETS } from '../config/schema.js';
 import { git } from '../repo/git.js';
 import { listChangedFiles } from '../repo/context.js';
 import { RunStore, WorkerCallInfo } from '../store/run-store.js';
@@ -67,6 +67,28 @@ const MAX_MILESTONE_RETRIES = 3;
 
 const DEFAULT_STALL_TIMEOUT_MINUTES = 15;
 const DEFAULT_WORKER_TIMEOUT_MINUTES = 30;
+
+/**
+ * Suggest scope presets based on violation patterns.
+ * Matches violation file paths against preset patterns to recommend additions.
+ */
+function suggestPresetsForViolations(violations: string[]): string[] {
+  const suggestions: Set<string> = new Set();
+
+  for (const violation of violations) {
+    for (const [presetName, patterns] of Object.entries(SCOPE_PRESETS)) {
+      for (const pattern of patterns) {
+        // Check if the violation matches the pattern
+        if (picomatch.isMatch(violation, pattern)) {
+          suggestions.add(presetName);
+          break;
+        }
+      }
+    }
+  }
+
+  return Array.from(suggestions);
+}
 
 /**
  * Resolve stall timeout in milliseconds.
@@ -198,6 +220,8 @@ function buildStructuredStopMemo(params: StopMemoParams): string {
     plan_parse_failed: 'Planner output could not be parsed.',
     implement_parse_failed: 'Implementer output could not be parsed.',
     review_parse_failed: 'Reviewer output could not be parsed.',
+    review_loop_detected: 'Reviewer requested the same changes repeatedly or max review rounds exceeded.',
+    plan_scope_violation: 'Planner proposed files outside the allowed scope.',
     complete: 'Run completed successfully.'
   };
 
@@ -213,7 +237,9 @@ function buildStructuredStopMemo(params: StopMemoParams): string {
     insufficient_evidence: 'Worker claimed work was already done without proving it. This prevents false certainty.',
     plan_parse_failed: 'Planner returned malformed JSON.',
     implement_parse_failed: 'Implementer returned malformed JSON.',
-    review_parse_failed: 'Reviewer returned malformed JSON.'
+    review_parse_failed: 'Reviewer returned malformed JSON.',
+    review_loop_detected: 'Implementer unable to satisfy reviewer feedback, or reviewer expectations are unclear/impossible.',
+    plan_scope_violation: 'Task requires files outside allowlist. Update scope.allowlist or scope.presets in agent.config.json.'
   };
 
   let nextAction: string;
@@ -254,7 +280,9 @@ function buildStructuredStopMemo(params: StopMemoParams): string {
     stalled_timeout: '- Check if workers are authenticated. Run `agent doctor` to diagnose.',
     worker_call_timeout: '- Worker hung indefinitely. Check API status, network, and run `agent doctor`.',
     parallel_file_collision: '- Use `agent status --all` to see conflicting runs. If you must proceed, use --force-parallel (may require manual merge resolution).',
-    insufficient_evidence: '- Worker must provide files_checked, grep_output, or commands_run to prove no changes needed. Re-run with clearer task instructions.'
+    insufficient_evidence: '- Worker must provide files_checked, grep_output, or commands_run to prove no changes needed. Re-run with clearer task instructions.',
+    review_loop_detected: '- Check review_digest.md for the requested changes. Consider simplifying the task or adjusting verification commands.',
+    plan_scope_violation: '- Add missing file patterns to scope.allowlist, or use scope.presets for common stacks (vitest, nextjs, drizzle, etc.).'
   };
 
   lines.push(
@@ -712,6 +740,9 @@ async function handlePlan(state: RunState, options: SupervisorOptions): Promise<
   if (scopeViolations.length > 0) {
     // Infer expected root prefix from first allowlist pattern for debugging
     const expectedPrefix = state.scope_lock.allowlist[0]?.replace(/\*.*$/, '') || '';
+    // Suggest presets that would cover the violation patterns
+    const suggestedPresets = suggestPresetsForViolations(scopeViolations);
+
     options.runStore.appendEvent({
       type: 'plan_scope_violation',
       source: 'supervisor',
@@ -719,15 +750,18 @@ async function handlePlan(state: RunState, options: SupervisorOptions): Promise<
         violations: scopeViolations,
         allowlist: state.scope_lock.allowlist,
         expected_prefix: expectedPrefix,
+        suggested_presets: suggestedPresets,
         hint: `All files_expected must start with a path matching allowlist patterns`
       }
     });
-    return stopWithError(
-      state,
-      options,
-      'plan_scope_violation',
-      `Planner produced files_expected outside allowlist: ${scopeViolations.join(', ')}`
-    );
+
+    // Build actionable error message
+    let errorMessage = `Planner produced files_expected outside allowlist: ${scopeViolations.join(', ')}`;
+    if (suggestedPresets.length > 0) {
+      errorMessage += `. Try adding presets: [${suggestedPresets.join(', ')}] to scope.presets in agent.config.json`;
+    }
+
+    return stopWithError(state, options, 'plan_scope_violation', errorMessage);
   }
 
   // Stage 2: Post-PLAN file collision check (STOP by default)
@@ -1300,6 +1334,23 @@ async function handleReview(state: RunState, options: SupervisorOptions): Promis
           last_changes: review.changes.slice(0, 2) // First 2 items for context
         }
       });
+
+      // Write review digest for debugging
+      const digestLines = [
+        '# Review Digest',
+        '',
+        `**Milestone:** ${state.milestone_index + 1} of ${state.milestones.length}`,
+        `**Review Rounds:** ${currentRounds}`,
+        `**Stop Reason:** ${reason}`,
+        '',
+        '## Last Requested Changes',
+        '',
+        ...review.changes.map((change, i) => `${i + 1}. ${change}`),
+        '',
+        '## Status',
+        `- **Verdict:** ${review.status}`
+      ];
+      options.runStore.writeMemo('review_digest.md', digestLines.join('\n'));
 
       const errorMsg = sameFingerprint
         ? `Identical review feedback detected after ${currentRounds} rounds. Manual intervention required.`

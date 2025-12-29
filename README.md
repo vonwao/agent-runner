@@ -1,135 +1,140 @@
-# Agent Runner
+# Agent Framework
 
-**Reliable autonomy for unattended coding runs.**
+A dual-LLM orchestrator that decomposes coding tasks into milestones and executes them with built-in verification, scope guards, and collision handling.
 
-A CLI that orchestrates Codex and Claude to execute coding tasks while you're away. Hand it a task, walk away, and come back to either checkpointed commits with verification evidence—or a clean stop with a forensic trail explaining what went wrong.
+## Overview
 
-> *"Spec Kit and BMAD help you decide what to do; this runtime makes it happen autonomously, safely, and reproducibly."*
+The agent framework orchestrates AI-powered coding sessions by:
 
-## Why This Exists
+1. **Planning**: Breaks tasks into milestones with file scopes
+2. **Implementing**: Executes code changes in an isolated worktree
+3. **Reviewing**: Validates changes meet requirements
+4. **Verifying**: Runs configured checks (tests, lint, build)
+5. **Checkpointing**: Commits progress atomically
 
-Current AI coding tools require constant babysitting or spin endlessly when stuck. This runtime solves that with:
+## Features
 
-- **Phase gates** that ensure verification before commits
-- **Scope locks** that prevent tasks from expanding
-- **Retry limits** that stop loops before they spiral
-- **Clean stops** with actionable handoff memos
-
-The goal isn't smarter AI—it's AI that's **reliable enough to run unattended**.
-
-See [docs/vision.md](docs/vision.md) for the full philosophy.
-
-## Key Features
-
-- **Dual-LLM orchestration**: Claude for planning/review, Codex for implementation (configurable)
-- **Phase-based execution**: PLAN → IMPLEMENT → VERIFY → REVIEW → CHECKPOINT → FINALIZE
-- **Safety guards**: Scope allowlist/denylist, lockfile protection, dirty worktree checks
-- **Verification tiers**: Risk-based test selection with automatic retries (up to 3 per milestone)
-- **Full auditability**: Event timeline, state snapshots, artifacts, and handoff memos
-- **Resumable runs**: Environment fingerprinting ensures safe resume across sessions
-- **Run anywhere**: Use in any repository via `npm link`
+- **Scope Guards**: Prevent modifications outside allowed file patterns
+- **Collision Detection**: Serialize runs that would touch the same files
+- **Review Loop Detection**: Stop when reviewer feedback becomes repetitive
+- **Auto-Resume**: Recover from transient failures automatically
+- **Worktree Isolation**: Each run operates in its own git worktree
+- **Scope Presets**: Common patterns for popular frameworks (nextjs, vitest, drizzle, etc.)
 
 ## Quick Start
 
-### Install (one-time, from this repo)
-
 ```bash
-npm install && npm run build && npm link
+# Install
+npm install -g agent-runner
+
+# Initialize config in your project
+agent init
+
+# Run a task
+agent run tasks/my-task.md
 ```
 
-### Use in any project
+## Configuration
 
-```bash
-cd /path/to/your-project
-npm link agent-runner
+Create `.agent/agent.config.json` in your project:
 
-# Create .agent directory
-mkdir -p .agent/tasks
-
-# Create config
-cat > .agent/agent.config.json << 'EOF'
+```json
 {
-  "scope": { "allowlist": ["src/**"], "denylist": [] },
-  "verification": { "tier0": ["npm test"] }
+  "agent": { "name": "my-project", "version": "1" },
+  "scope": {
+    "allowlist": ["src/**", "tests/**"],
+    "denylist": ["node_modules/**", ".next/**"],
+    "presets": ["vitest", "typescript"]
+  },
+  "verification": {
+    "tier0": ["npm run typecheck", "npm run lint"],
+    "tier1": ["npm run build"],
+    "tier2": ["npm test"]
+  },
+  "phases": {
+    "plan": "claude",
+    "implement": "claude",
+    "review": "claude"
+  },
+  "resilience": {
+    "max_review_rounds": 2,
+    "auto_resume": true,
+    "max_auto_resumes": 2
+  }
 }
-EOF
-
-# Create a task
-echo "# Task: Fix the login bug" > .agent/tasks/fix-login.md
-
-# Run
-agent doctor                                           # Check workers
-agent run --task .agent/tasks/fix-login.md --worktree  # Run isolated
-agent follow                                           # Watch progress
-agent report latest                                    # View results
 ```
 
-See **[docs/TARGET_REPO_SETUP.md](docs/TARGET_REPO_SETUP.md)** for the full setup guide.
+### Scope Presets
 
-## Phases (as implemented)
-PLAN -> IMPLEMENT -> VERIFY -> REVIEW -> CHECKPOINT -> FINALIZE
+Instead of manually listing file patterns, use presets for common stacks:
 
-## Run Artifacts
-
-Each run creates a self-contained directory under `.agent/runs/<run_id>/` in the target repo:
-
-```
-.agent/
-├── agent.config.json        # Your config
-├── tasks/                   # Task files
-│   └── your-task.md
-└── runs/
-    └── <run_id>/            # Timestamp-based ID
-        ├── artifacts/
-        │   ├── task.md              # Original task file
-        │   └── tests_tier0.log      # Verification output
-        ├── handoffs/
-        │   ├── milestone_01_handoff.md
-        │   └── stop.md              # Stop reason memo
-        ├── worktree/                # Git worktree (if --worktree)
-        ├── config.snapshot.json     # Config used for this run
-        ├── env.fingerprint.json     # Environment snapshot for resume
-        ├── plan.md                  # Generated milestone plan
-        ├── seq.txt                  # Event sequence counter
-        ├── state.json               # Current phase, milestone, timestamps
-        ├── summary.json             # Machine-readable summary
-        ├── summary.md               # Human-readable summary
-        └── timeline.jsonl           # Append-only event log
+```json
+{
+  "scope": {
+    "allowlist": ["src/**"],
+    "presets": ["nextjs", "vitest", "drizzle", "tailwind"]
+  }
+}
 ```
 
-## Documentation
+Available presets: `nextjs`, `react`, `drizzle`, `prisma`, `vitest`, `jest`, `playwright`, `typescript`, `tailwind`, `eslint`, `env`
 
-Full documentation is available in the [docs/](docs/) directory. Start with the [index](docs/index.md) for guided reading paths.
+## CLI Commands
 
-### Getting Started
-| Doc | Description |
-|-----|-------------|
-| [Target Repo Setup](docs/TARGET_REPO_SETUP.md) | **Full guide for using the agent in other projects** |
-| [Vision](docs/vision.md) | Why this exists and the core philosophy |
-| [Mental Model](docs/mental-model.md) | Core concepts and how the system thinks |
-| [CLI Reference](docs/cli.md) | All commands and options |
-| [Run Lifecycle](docs/run-lifecycle.md) | Phase flow and tick-based execution |
-| [Run Store](docs/run-store.md) | Artifacts, timeline, and state persistence |
+| Command | Description |
+|---------|-------------|
+| `agent run <task>` | Run a task file |
+| `agent resume <run-id>` | Resume a stopped run |
+| `agent status` | Show current run status |
+| `agent report [run-id]` | Generate run report |
+| `agent doctor` | Check environment health |
 
-### System Design
-| Doc | Description |
-|-----|-------------|
-| [Architecture](docs/architecture.md) | Component overview and data flow |
-| [Workers](docs/workers.md) | Codex and Claude adapters |
-| [Verification](docs/verification.md) | Tiered testing and retry behavior |
-| [Guards and Scope](docs/guards-and-scope.md) | Safety checks and file scope enforcement |
+## Task Files
 
-### Configuration
-| Doc | Description |
-|-----|-------------|
-| [Configuration](docs/configuration.md) | agent.config.json schema and options |
-| [Tasks and Templates](docs/tasks-and-templates.md) | Task file format and prompt templates |
+Tasks are markdown files describing what to build:
 
-### Advanced
-| Doc | Description |
-|-----|-------------|
-| [Self-Hosting Safety](docs/self-hosting-safety.md) | Guidelines for using the agent on itself |
-| [Deckbuilder Fixture](docs/deckbuilder-fixture.md) | Example target app for testing |
-| [Development](docs/development.md) | Contributing and local setup |
-| [Troubleshooting](docs/troubleshooting.md) | Common issues and solutions |
-| [Glossary](docs/glossary.md) | Term definitions |
+```markdown
+# Feature: User Authentication
+
+## Goal
+Add login/logout functionality to the application.
+
+## Requirements
+- OAuth2 integration with Google
+- Session management
+- Protected routes
+
+## Success Criteria
+- Users can log in with Google
+- Session persists across page refreshes
+- Unauthorized users redirected to login
+```
+
+## Stop Reasons
+
+When a run stops, check the stop reason in `state.json`:
+
+| Reason | Description |
+|--------|-------------|
+| `complete` | Task finished successfully |
+| `review_loop_detected` | Reviewer kept requesting same changes |
+| `plan_scope_violation` | Planner proposed files outside allowlist |
+| `time_budget_exceeded` | Ran out of time |
+| `verification_failed_max_retries` | Tests/lint failed too many times |
+
+## Development
+
+```bash
+# Build
+npm run build
+
+# Test
+npm test
+
+# Run locally
+npm run dev -- run tasks/test.md
+```
+
+## License
+
+MIT

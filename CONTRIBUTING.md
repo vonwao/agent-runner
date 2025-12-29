@@ -1,178 +1,123 @@
-# Contributing to Dual-LLM Agent Runner
+# Contributing to Agent Framework
 
-Thank you for your interest in contributing! This guide will help you get started.
+Thank you for your interest in contributing to the Agent Framework! This document provides guidelines and information for contributors.
 
-## Development Setup
+## Getting Started
+
+1. Fork the repository
+2. Clone your fork: `git clone https://github.com/YOUR_USERNAME/agent-framework.git`
+3. Install dependencies: `npm install`
+4. Build: `npm run build`
+5. Run tests: `npm test`
+
+## Development Workflow
+
+### Building
 
 ```bash
-# Clone and install
-git clone <repo-url>
-cd agent-framework
-npm install
-
-# Build
 npm run build
-
-# Run tests
-npm test
-
-# Verify CLI works
-node dist/cli.js doctor
 ```
 
-## Project Structure
-
-```
-src/
-  cli.ts                 # Entry point, command definitions
-  commands/              # CLI command implementations
-    run.ts               # Main run command
-    resume.ts            # Resume existing runs
-    doctor.ts            # Health checks
-    report.ts            # Run reporting
-    status.ts            # Status display
-    guards-only.ts       # Preflight checks only
-    preflight.ts         # Guard and scope validation
-  supervisor/            # Core orchestration
-    runner.ts            # Phase loop (PLAN->IMPLEMENT->VERIFY->REVIEW->CHECKPOINT)
-    state-machine.ts     # State transitions
-    planner.ts           # Task parsing
-    scope-guard.ts       # File scope enforcement
-    verification-policy.ts # Tier selection logic
-  workers/               # LLM adapters
-    claude.ts            # Claude CLI adapter
-    codex.ts             # Codex CLI adapter
-    prompts.ts           # Prompt builders
-    json.ts              # JSON marker parsing
-    schemas.ts           # Zod output schemas
-  store/                 # Persistence
-    run-store.ts         # Run artifacts and timeline
-  config/                # Configuration
-    schema.ts            # Zod config schema
-    load.ts              # Config file loading
-  verification/          # Test execution
-    engine.ts            # Command runner with timeouts
-  types/                 # Type definitions
-    schemas.ts           # Core TypeScript interfaces
-  repo/                  # Git operations
-    git.ts               # Git command wrapper
-    context.ts           # Changed file detection
-  env/                   # Environment
-    fingerprint.ts       # Environment hashing
-```
-
-## Key Concepts
-
-Before contributing, understand these core concepts:
-
-- **Phases**: PLAN, IMPLEMENT, VERIFY, REVIEW, CHECKPOINT, FINALIZE
-- **Workers**: Claude and Codex CLI adapters that execute prompts
-- **Verification Tiers**: tier0 (always), tier1 (risk-triggered), tier2 (run-end)
-- **Scope Guards**: Allowlist/denylist patterns that restrict file changes
-- **Run Store**: Persistent artifacts under `runs/<run_id>/`
-
-See [docs/mental-model.md](docs/mental-model.md) for the full mental model.
-
-## Making Changes
-
-### 1. Create a branch
-
-```bash
-git checkout -b feature/your-feature-name
-```
-
-### 2. Make your changes
-
-- Follow existing code style (TypeScript, no semicolons where optional)
-- Add tests for new functionality
-- Update docs if behavior changes
-
-### 3. Test your changes
-
-```bash
-# Build and test
-npm run build && npm test
-
-# Run doctor to verify CLI works
-node dist/cli.js doctor
-
-# Test a real run (optional)
-node dist/cli.js run --repo . --task tasks/noop.md --dry-run
-```
-
-### 4. Commit with clear messages
-
-```bash
-git commit -m "feat: add new feature description"
-```
-
-Use conventional commit prefixes:
-- `feat:` - New feature
-- `fix:` - Bug fix
-- `docs:` - Documentation only
-- `refactor:` - Code change that neither fixes a bug nor adds a feature
-- `test:` - Adding or updating tests
-- `chore:` - Maintenance tasks
-
-## Code Style
-
-- **TypeScript**: Strict mode enabled
-- **Formatting**: Use existing patterns (check nearby code)
-- **Imports**: Use `.js` extensions for local imports (ESM)
-- **Error handling**: Use typed errors, log with context
-- **Comments**: Explain "why" not "what"
-
-## Testing
-
-Tests are in `*.test.ts` files alongside source files:
+### Testing
 
 ```bash
 # Run all tests
 npm test
 
+# Run tests in watch mode
+npm run test:watch
+
 # Run specific test file
-npm test -- src/workers/json.test.ts
+npm test -- src/config/__tests__/presets.test.ts
 ```
 
-## Documentation
+### Running Locally
 
-- Update docs if you change behavior
-- Add JSDoc comments to exported functions
-- Keep README.md in sync with major changes
+```bash
+# Use ts-node for development
+npm run dev -- run tasks/test.md
 
-See [docs/index.md](docs/index.md) for documentation structure.
+# Or run the built version
+npm start -- run tasks/test.md
+```
 
-## Protected Files (Boot Chain)
+## Code Style
 
-These files are critical for the agent to function. Be extra careful when modifying:
-
-- `src/cli.ts` - Entry point
-- `src/supervisor/runner.ts` - Phase orchestration
-- `src/supervisor/state-machine.ts` - State transitions
-- `src/store/run-store.ts` - Persistence
-- `src/workers/json.ts` - JSON parsing
-- `src/workers/claude.ts` / `codex.ts` - Worker protocols
-- `src/commands/run.ts` / `resume.ts` - Run entrypoints
-- `src/config/load.ts` - Config loading
-
-See [docs/self-hosting-safety.md](docs/self-hosting-safety.md) for details.
+- TypeScript with strict mode
+- ESM modules
+- Zod for runtime validation
+- Vitest for testing
 
 ## Pull Request Process
 
-1. Ensure tests pass: `npm run build && npm test`
-2. Update documentation if needed
-3. Write a clear PR description explaining:
-   - What changed
-   - Why it changed
-   - How to test it
-4. Request review
+1. Create a feature branch from `main`
+2. Make your changes
+3. Ensure all tests pass: `npm test`
+4. Ensure build succeeds: `npm run build`
+5. Submit a PR with a clear description
 
-## Getting Help
+### PR Title Format
 
-- Check [docs/troubleshooting.md](docs/troubleshooting.md) for common issues
-- Review existing code for patterns
-- Open an issue for questions
+Use conventional commit format:
 
-## License
+- `feat: add new feature`
+- `fix: resolve bug`
+- `docs: update documentation`
+- `refactor: restructure code`
+- `test: add tests`
 
-By contributing, you agree that your contributions will be licensed under the same license as the project.
+## Architecture Overview
+
+```
+src/
+  cli.ts              # CLI entry point
+  config/             # Configuration loading and schema
+  context/            # Context pack building
+  orchestrator/       # Multi-run coordination
+  repo/               # Git operations
+  store/              # Run state persistence
+  supervisor/         # Main run loop
+  verification/       # Test/lint execution
+  workers/            # Claude/Codex integration
+```
+
+### Key Concepts
+
+- **RunState**: Immutable state object passed through the supervisor loop
+- **Milestone**: Unit of work with scope and verification requirements
+- **Worktree**: Git worktree providing run isolation
+- **Scope Lock**: File patterns constraining modifications
+
+## Reporting Issues
+
+When reporting issues, please include:
+
+1. Steps to reproduce
+2. Expected behavior
+3. Actual behavior
+4. `agent doctor` output
+5. Relevant log excerpts from `timeline.jsonl`
+
+## Adding Scope Presets
+
+To add a new scope preset:
+
+1. Edit `src/config/schema.ts`
+2. Add patterns to the `SCOPE_PRESETS` object
+3. Add tests in `src/config/__tests__/presets.test.ts`
+
+Example:
+
+```typescript
+export const SCOPE_PRESETS: Record<string, string[]> = {
+  // ... existing presets
+  myframework: [
+    'myframework.config.*',
+    'myframework/**',
+  ],
+};
+```
+
+## Questions?
+
+Open an issue with the `question` label.

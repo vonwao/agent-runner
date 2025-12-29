@@ -1,5 +1,78 @@
 import { z } from 'zod';
 
+/**
+ * Scope presets - common file patterns for popular frameworks/tools.
+ * These expand the allowlist to include config files that tasks commonly need.
+ */
+export const SCOPE_PRESETS: Record<string, string[]> = {
+  // Framework presets
+  nextjs: [
+    'next.config.*',
+    'next-env.d.ts',
+    'middleware.ts',
+    'middleware.js',
+  ],
+  react: [
+    'vite.config.*',
+    'index.html',
+  ],
+
+  // Database presets
+  drizzle: [
+    'drizzle.config.*',
+    'drizzle/**',
+  ],
+  prisma: [
+    'prisma/**',
+  ],
+
+  // Testing presets
+  vitest: [
+    'vitest.config.*',
+    'vite.config.*',
+    '**/*.test.ts',
+    '**/*.test.tsx',
+    '**/*.spec.ts',
+    '**/*.spec.tsx',
+  ],
+  jest: [
+    'jest.config.*',
+    'jest.setup.*',
+    '**/*.test.ts',
+    '**/*.test.tsx',
+    '**/*.spec.ts',
+    '**/*.spec.tsx',
+  ],
+  playwright: [
+    'playwright.config.*',
+    'e2e/**',
+    'tests/**',
+  ],
+
+  // Build/config presets
+  typescript: [
+    'tsconfig*.json',
+  ],
+  tailwind: [
+    'tailwind.config.*',
+    'postcss.config.*',
+  ],
+  eslint: [
+    'eslint.config.*',
+    '.eslintrc*',
+  ],
+
+  // Environment presets
+  env: [
+    '.env.example',
+    '.env.local.example',
+    '.env.template',
+  ],
+};
+
+/** Valid preset names */
+export const PRESET_NAMES = Object.keys(SCOPE_PRESETS) as [string, ...string[]];
+
 const riskTriggerSchema = z.object({
   name: z.string(),
   patterns: z.array(z.string()),
@@ -20,7 +93,9 @@ const scopeSchema = z.object({
   denylist: z.array(z.string()).default([]),
   lockfiles: z
     .array(z.string())
-    .default(['package-lock.json', 'pnpm-lock.yaml', 'yarn.lock'])
+    .default(['package-lock.json', 'pnpm-lock.yaml', 'yarn.lock']),
+  /** Scope presets to include (expands allowlist with common patterns) */
+  presets: z.array(z.string()).default([])
 });
 
 const agentSchema = z.object({
