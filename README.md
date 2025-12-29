@@ -2,6 +2,8 @@
 
 A dual-LLM orchestrator that decomposes coding tasks into milestones and executes them with built-in verification, scope guards, and collision handling.
 
+> **Status**: v0.2.1 is the first public release. The project went through heavy iteration prior to this version — that history is preserved as evidence of real-world refinement, not hidden. See [CHANGELOG.md](CHANGELOG.md) for release notes.
+
 ## Overview
 
 The agent framework orchestrates AI-powered coding sessions by:
@@ -134,6 +136,20 @@ npm test
 # Run locally
 npm run dev -- run tasks/test.md
 ```
+
+## Release History
+
+| Version | Date | Highlights |
+|---------|------|------------|
+| v0.2.1 | 2025-12-29 | Scope presets, review digest, OSS packaging |
+| v0.2.0 | 2025-12-28 | Review loop detection, ESM fix |
+| v0.1.0 | 2025-12-27 | Initial stable release |
+
+See [CHANGELOG.md](CHANGELOG.md) for detailed release notes.
+
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup and guidelines.
 
 ## License
 
