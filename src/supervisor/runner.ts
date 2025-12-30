@@ -1040,11 +1040,12 @@ async function handleVerify(state: RunState, options: SupervisorOptions): Promis
   });
 
   const changedFiles = await listChangedFiles(options.repoPath);
+  const isLastMilestone = state.milestone_index === state.milestones.length - 1;
   const selection = selectTiersWithReasons(options.config.verification, {
     changed_files: changedFiles,
     risk_level: state.milestones[state.milestone_index]?.risk_level ?? 'medium',
-    is_milestone_end: false,
-    is_run_end: false
+    is_milestone_end: isLastMilestone,
+    is_run_end: isLastMilestone
   });
 
   const results: string[] = [];
