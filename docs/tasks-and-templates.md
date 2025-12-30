@@ -38,6 +38,7 @@ Create the Git Basics course...
 **Rules:**
 - Directory paths become `prefix/**` patterns automatically
 - Matching uses repo-relative POSIX paths
+- Renames count as touching both old and new paths (conservative rule)
 - Overlapping claims are blocked at scheduling time
 - Worktrees (`--worktree`) are still recommended for full isolation
 

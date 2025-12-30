@@ -49,12 +49,13 @@ export async function listChangedFiles(gitRoot: string): Promise<string[]> {
       if (oldPath) files.push(oldPath);
       if (newPath) files.push(newPath);
     } else {
-      const path = entry.trim();
-      if (path) files.push(path);
+      const filePath = entry.trim();
+      if (filePath) files.push(filePath);
     }
   }
 
-  return files;
+  // Deduplicate: renames or multiple status entries can reference same path
+  return [...new Set(files)];
 }
 
 export function getTouchedPackages(changedFiles: string[]): string[] {
