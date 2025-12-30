@@ -9,7 +9,17 @@ import { git, gitOptional } from './git.js';
  */
 function resolveWorktreeGitDir(worktreePath: string): string {
   const dotGitPath = path.join(worktreePath, '.git');
-  const stat = fs.statSync(dotGitPath);
+
+  let stat: fs.Stats;
+  try {
+    stat = fs.statSync(dotGitPath);
+  } catch (err) {
+    const e = err as NodeJS.ErrnoException;
+    if (e.code === 'ENOENT') {
+      throw new Error(`Worktree missing .git file/dir at ${dotGitPath} (worktreePath=${worktreePath})`);
+    }
+    throw err;
+  }
 
   if (stat.isDirectory()) {
     return dotGitPath;
