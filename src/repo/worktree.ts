@@ -229,6 +229,10 @@ export async function recreateWorktree(
 ): Promise<WorktreeRecreateResult> {
   // Check if worktree already exists and is valid
   if (await validateWorktree(info.effective_repo_path)) {
+    // Ensure excludes are present (upgrades old worktrees created before this fix)
+    const gitdir = resolveWorktreeGitDir(info.effective_repo_path);
+    upsertInfoExclude(gitdir, ['node_modules', 'node_modules/']);
+
     // Verify branch matches if one was specified
     if (info.run_branch) {
       const currentBranchResult = await gitOptional(
