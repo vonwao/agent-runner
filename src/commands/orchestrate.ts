@@ -137,13 +137,21 @@ function collectMissingOwnership(state: OrchestratorState): Array<{ track: strin
 
 function formatOwnershipMissingMessage(missing: Array<{ track: string; task: string }>): string {
   const lines = [
-    'Ownership metadata is required for parallel runs without worktrees.',
-    'Add `owns:` frontmatter to each task, or re-run with --worktree.',
+    'Parallel runs without worktrees require ownership declarations.',
     '',
-    'Missing owns:'
+    'Fix: Add YAML frontmatter to each task file:',
+    '',
+    '  ---',
+    '  owns:',
+    '    - src/courses/my-course/',
+    '  ---',
+    '',
+    'Or use --worktree for full isolation (recommended).',
+    '',
+    `Missing owns (${missing.length} task${missing.length === 1 ? '' : 's'}):`
   ];
   for (const entry of missing) {
-    lines.push(`  - ${entry.track}: ${entry.task}`);
+    lines.push(`  ${entry.task}`);
   }
   return lines.join('\n');
 }
