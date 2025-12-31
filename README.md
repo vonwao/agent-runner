@@ -143,9 +143,10 @@ Add login/logout functionality to the application.
 - Unauthorized users redirected to login
 ```
 
-### Task Ownership (for parallel runs)
+### Task Ownership (optional; only for no-worktree parallel)
 
-For parallel execution, declare which files a task owns:
+Declare `owns:` only when running multiple tasks in parallel without worktrees, or when you want strict ownership enforcement.
+Single-task runs and `--worktree` runs do not require `owns:` and behave the same without it.
 
 ```markdown
 ---

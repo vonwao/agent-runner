@@ -21,6 +21,9 @@ Acceptance:
 
 ## Task ownership (for parallel runs)
 
+Use `owns:` only when running multiple tasks in parallel without worktree isolation, or when you want strict ownership enforcement.
+Single-task runs and `--worktree` runs do not require `owns:` and work as before.
+
 When running multiple tasks in parallel without worktree isolation, each task must declare which paths it owns using YAML frontmatter:
 
 ```yaml

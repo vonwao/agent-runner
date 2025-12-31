@@ -138,6 +138,7 @@ function collectMissingOwnership(state: OrchestratorState): Array<{ track: strin
 function formatOwnershipMissingMessage(missing: Array<{ track: string; task: string }>): string {
   const lines = [
     'Parallel runs without worktrees require ownership declarations.',
+    'Single-task runs and --worktree runs do not require owns.',
     '',
     'Fix: Add YAML frontmatter to each task file:',
     '',

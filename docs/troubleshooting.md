@@ -31,7 +31,8 @@ Actions:
 - Use `--allow-dirty` or `--allow-deps` if the change is intentional.
 
 ## Ownership violations
-- Occurs when a task with `owns:` frontmatter modifies files outside its declared paths.
+- Occurs only when a task declares `owns:` and modifies files outside its declared paths.
+- Runs without `owns:` are not affected; use `--worktree` if you want isolation without ownership rules.
 - The timeline will show `ownership_violation` event with `violating_files`.
 - Fix: Either expand the `owns:` patterns in the task frontmatter, or constrain the implementation.
 - Note: Renames count as touching both old and new paths (conservative rule for parallel safety).
