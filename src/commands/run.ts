@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { loadConfig, resolveConfigPath } from '../config/load.js';
 import { RunStore } from '../store/run-store.js';
-import { getRunsRoot, getWorktreesRoot } from '../store/runs-root.js';
+import { getRunsRoot, getWorktreesRoot, getAgentPaths } from '../store/runs-root.js';
 import { git, gitOptional } from '../repo/git.js';
 import { createWorktree, WorktreeInfo, ensureRepoInfoExclude } from '../repo/worktree.js';
 import { buildMilestonesFromTask } from '../supervisor/planner.js';
@@ -125,6 +125,32 @@ function formatEffectiveConfig(options: RunOptions): string {
   return `Config: ${parts.join(' | ')}`;
 }
 
+/**
+ * Format paths summary for debugging.
+ * Shows where runs and worktrees are stored.
+ */
+function formatPathsSummary(
+  repoPath: string,
+  worktreeEnabled: boolean,
+  worktreePath?: string
+): string {
+  // Import is at the top of the file, use directly
+  const paths = getAgentPaths(repoPath);
+  const worktreesOverride = process.env.AGENT_WORKTREES_DIR;
+
+  const parts = [
+    `repo=${paths.repo_root}`,
+    `runs=${paths.runs_dir}`,
+    `worktrees=${paths.worktrees_dir}${worktreesOverride ? ' (env override)' : ''}`
+  ];
+
+  if (worktreeEnabled && worktreePath) {
+    parts.push(`current_worktree=${worktreePath}`);
+  }
+
+  return `Paths: ${parts.join(' | ')}`;
+}
+
 function basePathFromAllowlist(pattern: string, repoPath: string): string | null {
   const globIndex = pattern.search(/[*?[\]]/);
   const withoutGlob = globIndex === -1 ? pattern : pattern.slice(0, globIndex);
@@ -208,9 +234,10 @@ export async function runCommand(options: RunOptions): Promise<void> {
     '.agent-worktrees/',
   ]);
 
-  // Log effective configuration for transparency (skip in JSON mode)
+  // Log effective configuration and paths for transparency (skip in JSON mode)
   if (!options.json) {
     console.log(formatEffectiveConfig(options));
+    console.log(formatPathsSummary(repoPath, options.worktree));
   }
 
   // Run doctor checks unless skipped (via flag or env var)

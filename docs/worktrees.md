@@ -107,7 +107,8 @@ node dist/cli.js gc --older-than 0
 ```
 
 The gc command:
-- Deletes `.agent/worktrees/<run_id>/` directories (and legacy `.agent/runs/<run_id>/worktree` if present)
+- Deletes `.agent-worktrees/<run_id>/` directories (current location)
+- Also cleans legacy locations: `.agent/worktrees/<run_id>/` (legacy v2) and `.agent/runs/<run_id>/worktree/` (legacy v1)
 - Never touches artifacts, state, or timeline
 - Shows disk usage summary before/after
 
@@ -128,3 +129,45 @@ The gc command:
 4. **Use `--force` carefully on resume**
    - Branch mismatch usually indicates something unexpected happened
    - Review the worktree state before forcing
+
+## Acceptance Tests
+
+These tests verify that worktree and guard fixes are working. Run with:
+
+```bash
+npx vitest run test/acceptance/worktree-fixes.test.ts
+```
+
+### A) Fresh repo "just works" (no .gitignore edits)
+
+**Goal:** Prove auto `.git/info/exclude` injection is enough.
+
+- Creates a brand-new repo with no `.gitignore` entries for `.agent*`
+- Runs a trivial task
+- Verifies:
+  - `.git/info/exclude` got updated with `.agent` patterns
+  - No guard noise from `.agent/**` artifacts
+
+**Pass condition:** `guard=pass` and no "dirty worktree" caused by runner artifacts.
+
+### B) Worktree path can't trip `.agent/**` denylist
+
+**Goal:** Prove `implement_blocked` class is eliminated.
+
+- Verifies worktree directory is at `.agent-worktrees/` not `.agent/worktrees/`
+- Verifies `AGENT_WORKTREES_DIR` env var override code path exists
+- Confirms worktree absolute path contains no `/.agent/` segment
+
+**Pass condition:** Worktree path contains **no** `/.agent/` segment.
+
+### C) "guard=fail" prints reasons + files
+
+**Goal:** Make guard failures actionable.
+
+- Creates intentional scope violation
+- Verifies console output includes:
+  - "Guard Failure Details:" section
+  - Specific reasons (dirty/scope/lockfile)
+  - Concrete files flagged
+
+**Pass condition:** Can diagnose without opening `timeline.jsonl`.
