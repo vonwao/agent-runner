@@ -38,19 +38,15 @@ See [Quickstart](quickstart.md) for full setup instructions.
 
 ### 1. Install
 
-Not yet published to npm. Install from source:
+Install from npm:
 
 ```bash
-git clone https://github.com/vonwao/agent-runner.git
-cd agent-runner
-npm install
-npm run build
-npm link
+npm install -g @weldr/runr
 ```
 
 ### 2. Configure
 
-Create `.agent/agent.config.json` in your project:
+Create `.runr/runr.config.json` in your project:
 
 ```json
 {
@@ -74,7 +70,7 @@ See [Configuration Reference](configuration.md) for full schema.
 
 ### 3. Create a Task
 
-Create `.agent/tasks/my-task.md`:
+Create `.runr/tasks/my-task.md`:
 
 ```markdown
 # Add Health Check Endpoint

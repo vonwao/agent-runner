@@ -39,8 +39,7 @@ When a run fails (and it will), you get:
 
 ```bash
 # Install
-git clone https://github.com/vonwao/runr.git
-cd runr && npm install && npm run build && npm link
+npm install -g @weldr/runr
 
 # Verify
 runr version
@@ -51,7 +50,7 @@ cd /your/project
 runr run --task .runr/tasks/my-task.md --worktree
 ```
 
-> Not on npm yet. Coming soon as `@weldr/runr`.
+> Prefer source install? See [Development](#development).
 
 ## Configuration
 

@@ -10,14 +10,10 @@ This guide explains how to set up and run Runr in any target repository.
 
 ## Installation
 
-Not yet published to npm. Install from source:
+Install from npm:
 
 ```bash
-git clone https://github.com/vonwao/runr.git
-cd runr
-npm install
-npm run build
-npm link
+npm install -g @weldr/runr
 ```
 
 Verify installation:
@@ -25,6 +21,16 @@ Verify installation:
 ```bash
 runr version
 runr doctor
+```
+
+Install from source (optional):
+
+```bash
+git clone https://github.com/vonwao/runr.git
+cd runr
+npm install
+npm run build
+npm link
 ```
 
 ## Project Setup

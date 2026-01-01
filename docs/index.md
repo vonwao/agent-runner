@@ -4,7 +4,7 @@
 
 | Aspect | Convention |
 |--------|------------|
-| **CLI** | `agent` (installed via `git clone` + `npm link`, see [Quickstart](quickstart.md)) |
+| **CLI** | `runr` (install via npm, see [Quickstart](quickstart.md)) |
 | **Config** | `.agent/agent.config.json` |
 | **Tasks** | `.agent/tasks/*.md` |
 | **Runs** | `.agent/runs/<run_id>/` |

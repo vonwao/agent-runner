@@ -4,7 +4,15 @@ Complete reference for all `runr` commands and flags.
 
 ## Installation
 
-Not yet published to npm. Install from source:
+Install from npm:
+
+```bash
+npm install -g @weldr/runr
+```
+
+The package name is `@weldr/runr`, the binary is `runr`.
+
+Install from source (optional):
 
 ```bash
 git clone https://github.com/vonwao/runr.git
@@ -13,8 +21,6 @@ npm install
 npm run build
 npm link
 ```
-
-The package name is `@weldr/runr`, the binary is `runr`.
 
 > **Note**: The legacy `agent` command still works but shows deprecation warnings.
 
