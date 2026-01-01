@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Guard violation diagnostics**: `stop.md` now includes specific files that caused the violation
+  - Scope violations list the exact files modified outside allowlist
+  - Lockfile violations list which lockfiles were changed
+  - Error message includes up to 5 file names for quick diagnosis
+
 ## [0.2.2] - 2025-12-31
 
 Reliability release: fixes the worktree/denylist catch-22 that caused `implement_blocked` failures.

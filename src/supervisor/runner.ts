@@ -257,6 +257,8 @@ interface StopMemoParams {
   lastError?: string;
   suggestedTime?: number;
   suggestedTicks?: number;
+  scopeViolations?: string[];
+  lockfileViolations?: string[];
 }
 
 /**
@@ -344,6 +346,24 @@ function buildStructuredStopMemo(params: StopMemoParams): string {
     lines.push('', '## Last Error', '```', lastError.slice(0, 500), '```');
   }
 
+  // Add violation details for guard_violation
+  if (params.scopeViolations && params.scopeViolations.length > 0) {
+    lines.push('', '## Scope Violations', 'Files modified outside allowlist:');
+    for (const file of params.scopeViolations.slice(0, 10)) {
+      lines.push(`- \`${file}\``);
+    }
+    if (params.scopeViolations.length > 10) {
+      lines.push(`- ... and ${params.scopeViolations.length - 10} more`);
+    }
+  }
+
+  if (params.lockfileViolations && params.lockfileViolations.length > 0) {
+    lines.push('', '## Lockfile Violations', 'Lockfiles modified without --allow-deps:');
+    for (const file of params.lockfileViolations) {
+      lines.push(`- \`${file}\``);
+    }
+  }
+
   const tipsByReason: Record<string, string> = {
     time_budget_exceeded: '- Consider increasing --time if task is complex',
     max_ticks_reached: '- ~5 ticks per milestone is typical. Increase --max-ticks for complex tasks.',
@@ -352,7 +372,8 @@ function buildStructuredStopMemo(params: StopMemoParams): string {
     parallel_file_collision: '- Use `agent status --all` to see conflicting runs. If you must proceed, use --force-parallel (may require manual merge resolution).',
     insufficient_evidence: '- Worker must provide files_checked, grep_output, or commands_run to prove no changes needed. Re-run with clearer task instructions.',
     review_loop_detected: '- Check review_digest.md for the requested changes. Consider simplifying the task or adjusting verification commands.',
-    plan_scope_violation: '- Add missing file patterns to scope.allowlist, or use scope.presets for common stacks (vitest, nextjs, drizzle, etc.).'
+    plan_scope_violation: '- Add missing file patterns to scope.allowlist, or use scope.presets for common stacks (vitest, nextjs, drizzle, etc.).',
+    guard_violation: '- Add missing file patterns to scope.allowlist, or use --allow-deps for lockfile changes.'
   };
 
   lines.push(
@@ -1068,6 +1089,11 @@ async function handleImplement(state: RunState, options: SupervisorOptions): Pro
   );
 
   if (!scopeCheck.ok || !lockfileCheck.ok) {
+    const allViolations = [...scopeCheck.violations, ...lockfileCheck.violations];
+    const errorMessage = allViolations.length > 0
+      ? `Guard violation: ${allViolations.slice(0, 5).join(', ')}${allViolations.length > 5 ? ` (+${allViolations.length - 5} more)` : ''}`
+      : 'Guard violation detected.';
+
     options.runStore.appendEvent({
       type: 'guard_violation',
       source: 'supervisor',
@@ -1076,7 +1102,30 @@ async function handleImplement(state: RunState, options: SupervisorOptions): Pro
         lockfile_violations: lockfileCheck.violations
       }
     });
-    return stopWithError(state, options, 'guard_violation', 'Guard violation detected.');
+
+    // Build structured stop memo with violation details
+    const memo = buildStructuredStopMemo({
+      reason: 'guard_violation',
+      runId: state.run_id,
+      phase: state.phase,
+      milestoneIndex: state.milestone_index,
+      milestonesTotal: state.milestones.length,
+      lastError: errorMessage,
+      scopeViolations: scopeCheck.violations,
+      lockfileViolations: lockfileCheck.violations
+    });
+
+    const updated = stopRun({
+      ...state,
+      last_error: errorMessage
+    }, 'guard_violation');
+    options.runStore.appendEvent({
+      type: 'stop',
+      source: 'supervisor',
+      payload: { reason: 'guard_violation', error: errorMessage }
+    });
+    writeStopMemo(options.runStore, memo);
+    return updated;
   }
 
   // Phase-2 ownership enforcement: only when owns is declared
