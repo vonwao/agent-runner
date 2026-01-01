@@ -8,13 +8,13 @@ Phase-gated orchestration for agent tasks.
 
 AI agents can write code. They can also:
 - Claim success without verification
-- Modify files they shouldn't touch
-- Get stuck in infinite loops
-- Fail in ways that are impossible to debug
+- Touch files they shouldn't
+- Loop forever
+- Fail in ways that are hard to explain
 
-**Runr doesn't make agents smarter. It makes them accountable.**
+Runr doesn't make agents smarter. It makes them accountable.
 
-## What This Does
+## What It Does
 
 Runr orchestrates AI workers (Claude, Codex) through a phase-based workflow with hard gates:
 
@@ -23,11 +23,11 @@ PLAN → IMPLEMENT → VERIFY → REVIEW → CHECKPOINT → done
          ↑___________|  (retry if needed)
 ```
 
-Every phase has criteria. You don't advance without meeting them.
+Every phase has criteria. You don't move forward without meeting them.
 
 ## Why Phase Gates?
 
-Most agent tools optimize for speed. Runr optimizes for **trust**.
+Most agent tools optimize for speed. Runr optimizes for trust.
 
 When a run fails (and it will), you get:
 - **Structured diagnostics** — exactly why it stopped
@@ -98,7 +98,7 @@ Available: `nextjs`, `react`, `drizzle`, `prisma`, `vitest`, `jest`, `playwright
 | `runr gc` | Clean up old runs |
 | `runr doctor` | Check environment |
 
-### The Fun Commands
+### Aliases
 
 Same functionality, different vibe:
 
@@ -145,17 +145,15 @@ Every stop produces `stop.json` + `stop.md` with diagnostics.
 
 ## Philosophy
 
-**This is not magic.** Runs fail. The goal is *understandable, resumable* failure.
+This isn't magic. Runs fail. The goal is understandable, resumable failure.
 
-**This is not a chatbot.** Task in, code out. No conversation.
+This isn't a chatbot. Task in, code out.
 
-**This is not a code generator.** It orchestrates generators. Different job.
+This isn't a code generator. It orchestrates generators.
 
-**Agents lie. Logs don't.** If it can't prove it, it didn't do it.
+Agents lie. Logs don't. If it can't prove it, it didn't do it.
 
 ## Migrating from agent-runner
-
-If you're upgrading from `agent-runner`:
 
 | Old | New |
 |-----|-----|
@@ -163,8 +161,7 @@ If you're upgrading from `agent-runner`:
 | `.agent/` directory | `.runr/` directory |
 | `agent.config.json` | `runr.config.json` |
 | `.agent-worktrees/` | `.runr-worktrees/` |
-
-Both old and new locations work during the transition period. You'll see deprecation warnings for old locations.
+Old paths still work for now, with deprecation warnings.
 
 ## Development
 
@@ -178,21 +175,21 @@ npm run dev -- run --task task.md  # run from source
 
 | Version | Date | Highlights |
 |---------|------|------------|
-| v0.3.0 | 2026-01-01 | **Renamed to Runr**, new CLI, new directory structure |
-| v0.2.2 | 2025-12-31 | Worktree location fix, guard diagnostics |
-| v0.2.1 | 2025-12-29 | Scope presets, review digest |
-| v0.2.0 | 2025-12-28 | Review loop detection |
-| v0.1.0 | 2025-12-27 | Initial stable release |
+| v0.3.0 | **Renamed to Runr**, new CLI, new directory structure |
+| v0.2.2 | Worktree location fix, guard diagnostics |
+| v0.2.1 | Scope presets, review digest |
+| v0.2.0 | Review loop detection |
+| v0.1.0 | Initial stable release |
 
-See [CHANGELOG.md](CHANGELOG.md) for detailed release notes.
+See [CHANGELOG.md](CHANGELOG.md) for details.
 
 ## Contributing
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup and guidelines.
+See [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## License
 
-Apache 2.0 — See [LICENSE](LICENSE)
+Apache 2.0 — See [LICENSE](LICENSE).
 
 ---
 
