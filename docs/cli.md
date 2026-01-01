@@ -1,38 +1,40 @@
 # CLI Reference
 
-Complete reference for all `agent` commands and flags.
+Complete reference for all `runr` commands and flags.
 
 ## Installation
 
 Not yet published to npm. Install from source:
 
 ```bash
-git clone https://github.com/vonwao/agent-runner.git
-cd agent-runner
+git clone https://github.com/vonwao/runr.git
+cd runr
 npm install
 npm run build
 npm link
 ```
 
-The package name is `agent-runner`, the binary is `agent`.
+The package name is `@weldr/runr`, the binary is `runr`.
+
+> **Note**: The legacy `agent` command still works but shows deprecation warnings.
 
 ---
 
 ## Commands
 
-### agent run
+### runr run
 
 Execute a task with full phase lifecycle.
 
 ```bash
-agent run --task <path> [options]
+runr run --task <path> [options]
 ```
 
 | Flag | Description | Default |
 |------|-------------|---------|
 | `--task <path>` | Task file (required) | - |
 | `--repo <path>` | Target repo path | `.` |
-| `--config <path>` | Config file path | `.agent/agent.config.json` |
+| `--config <path>` | Config file path | `.runr/runr.config.json` |
 | `--time <minutes>` | Time budget | `120` |
 | `--max-ticks <count>` | Max phase transitions | `50` |
 | `--worktree` | Create isolated git worktree | `false` |
@@ -51,23 +53,23 @@ agent run --task <path> [options]
 
 **Example:**
 ```bash
-agent run --task .agent/tasks/add-feature.md --worktree --time 30
+runr run --task .runr/tasks/add-feature.md --worktree --time 30
 ```
 
 ---
 
-### agent resume
+### runr resume
 
 Resume a stopped run.
 
 ```bash
-agent resume <runId> [options]
+runr resume <runId> [options]
 ```
 
 | Flag | Description | Default |
 |------|-------------|---------|
 | `--repo <path>` | Target repo path | `.` |
-| `--config <path>` | Config file path | `.agent/agent.config.json` |
+| `--config <path>` | Config file path | `.runr/runr.config.json` |
 | `--time <minutes>` | Time budget | `120` |
 | `--max-ticks <count>` | Max phase transitions | `50` |
 | `--allow-deps` | Allow lockfile changes | `false` |
@@ -76,13 +78,13 @@ agent resume <runId> [options]
 
 ---
 
-### agent status
+### runr status
 
 Show run status.
 
 ```bash
-agent status [runId] [options]
-agent status --all
+runr status [runId] [options]
+runr status --all
 ```
 
 | Flag | Description |
@@ -92,12 +94,12 @@ agent status --all
 
 ---
 
-### agent report
+### runr report
 
 Generate run report.
 
 ```bash
-agent report <runId|latest> [options]
+runr report <runId|latest> [options]
 ```
 
 | Flag | Description | Default |
@@ -108,12 +110,12 @@ agent report <runId|latest> [options]
 
 ---
 
-### agent follow
+### runr follow
 
 Tail run timeline in real-time.
 
 ```bash
-agent follow [runId|latest] [options]
+runr follow [runId|latest] [options]
 ```
 
 | Flag | Description |
@@ -124,12 +126,12 @@ Exits when run reaches terminal state.
 
 ---
 
-### agent wait
+### runr wait
 
 Block until run reaches terminal state.
 
 ```bash
-agent wait [runId|latest] [options]
+runr wait [runId|latest] [options]
 ```
 
 | Flag | Description | Default |
@@ -141,12 +143,12 @@ agent wait [runId|latest] [options]
 
 ---
 
-### agent doctor
+### runr doctor
 
 Check worker CLI availability.
 
 ```bash
-agent doctor [options]
+runr doctor [options]
 ```
 
 | Flag | Description |
@@ -156,12 +158,12 @@ agent doctor [options]
 
 ---
 
-### agent summarize
+### runr summarize
 
 Generate summary.json from run KPIs.
 
 ```bash
-agent summarize <runId|latest> [options]
+runr summarize <runId|latest> [options]
 ```
 
 | Flag | Description |
@@ -170,12 +172,12 @@ agent summarize <runId|latest> [options]
 
 ---
 
-### agent compare
+### runr compare
 
 Compare KPIs between two runs.
 
 ```bash
-agent compare <runA> <runB> [options]
+runr compare <runA> <runB> [options]
 ```
 
 | Flag | Description |
@@ -184,12 +186,12 @@ agent compare <runA> <runB> [options]
 
 ---
 
-### agent metrics
+### runr metrics
 
 Show aggregated metrics across runs.
 
 ```bash
-agent metrics [options]
+runr metrics [options]
 ```
 
 | Flag | Description | Default |
@@ -201,12 +203,12 @@ agent metrics [options]
 
 ---
 
-### agent gc
+### runr gc
 
 Clean up old worktree directories.
 
 ```bash
-agent gc [options]
+runr gc [options]
 ```
 
 | Flag | Description | Default |
@@ -217,12 +219,12 @@ agent gc [options]
 
 ---
 
-### agent paths
+### runr paths
 
-Display canonical agent directory paths.
+Display canonical runr directory paths.
 
 ```bash
-agent paths [options]
+runr paths [options]
 ```
 
 | Flag | Description |
@@ -232,12 +234,12 @@ agent paths [options]
 
 ---
 
-### agent version
+### runr version
 
 Show version information.
 
 ```bash
-agent version [options]
+runr version [options]
 ```
 
 | Flag | Description |
@@ -246,12 +248,12 @@ agent version [options]
 
 ---
 
-### agent guards-only
+### runr guards-only
 
 Run only preflight guards without executing.
 
 ```bash
-agent guards-only --task <path> [options]
+runr guards-only --task <path> [options]
 ```
 
 | Flag | Description |
@@ -265,16 +267,29 @@ agent guards-only --task <path> [options]
 
 ---
 
+## Fun Aliases
+
+Same commands, different vibe:
+
+| Alias | Maps to | Description |
+|-------|---------|-------------|
+| `runr summon` | `runr run` | Summon a worker to execute a task |
+| `runr resurrect` | `runr resume` | Resurrect a stopped run from checkpoint |
+| `runr scry` | `runr status` | Scry the fate of a run |
+| `runr banish` | `runr gc` | Banish old worktrees to the void |
+
+---
+
 ## Orchestration Commands
 
 Multi-track execution with collision-aware scheduling.
 
-### agent orchestrate run
+### runr orchestrate run
 
 Start a new orchestration.
 
 ```bash
-agent orchestrate run --config <path> [options]
+runr orchestrate run --config <path> [options]
 ```
 
 | Flag | Description | Default |
@@ -290,12 +305,12 @@ agent orchestrate run --config <path> [options]
 | `--auto-resume` | Auto-resume on failures | `false` |
 | `--dry-run` | Show plan without running | `false` |
 
-### agent orchestrate resume
+### runr orchestrate resume
 
 Resume a stopped orchestration.
 
 ```bash
-agent orchestrate resume <orchestratorId|latest> [options]
+runr orchestrate resume <orchestratorId|latest> [options]
 ```
 
 | Flag | Description |
@@ -306,12 +321,12 @@ agent orchestrate resume <orchestratorId|latest> [options]
 | `--fast` / `--no-fast` | Override fast mode |
 | `--collision-policy <p>` | Override collision policy |
 
-### agent orchestrate wait
+### runr orchestrate wait
 
 Block until orchestration completes.
 
 ```bash
-agent orchestrate wait <orchestratorId|latest> [options]
+runr orchestrate wait <orchestratorId|latest> [options]
 ```
 
 | Flag | Description | Default |

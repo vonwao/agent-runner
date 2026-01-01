@@ -1,6 +1,8 @@
 # Configuration Reference
 
-Config is loaded from `.agent/agent.config.json` by default, or a path provided with `--config`.
+Config is loaded from `.runr/runr.config.json` by default, or a path provided with `--config`.
+
+> **Note**: Legacy path `.agent/agent.config.json` is still supported with deprecation warnings.
 
 ## Full Schema
 

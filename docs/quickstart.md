@@ -1,6 +1,6 @@
 # Quickstart
 
-Get Agent Framework running on your project in 5 minutes.
+Get Runr running on your project in 5 minutes.
 
 ## Prerequisites
 
@@ -13,8 +13,8 @@ Get Agent Framework running on your project in 5 minutes.
 Not yet published to npm. Install from source:
 
 ```bash
-git clone https://github.com/vonwao/agent-runner.git
-cd agent-runner
+git clone https://github.com/vonwao/runr.git
+cd runr
 npm install
 npm run build
 npm link
@@ -23,13 +23,13 @@ npm link
 Verify installation:
 
 ```bash
-agent version
-agent doctor
+runr version
+runr doctor
 ```
 
 ## Configure Your Project
 
-Create `.agent/agent.config.json` in your project root:
+Create `.runr/runr.config.json` in your project root:
 
 ```json
 {
@@ -54,7 +54,7 @@ Create `.agent/agent.config.json` in your project root:
 
 ## Create a Task
 
-Create `.agent/tasks/my-first-task.md`:
+Create `.runr/tasks/my-first-task.md`:
 
 ```markdown
 # Add Health Check Endpoint
@@ -75,44 +75,58 @@ Add a GET /api/health endpoint that returns { status: "ok" }.
 
 ```bash
 # Check environment
-agent doctor
+runr doctor
 
 # Execute task (uses worktree isolation)
-agent run .agent/tasks/my-first-task.md --time 10
+runr run --task .runr/tasks/my-first-task.md --time 10
 
 # Monitor progress
-agent follow <run_id>
+runr follow <run_id>
 
 # View results
-agent report <run_id>
+runr report <run_id>
 ```
 
 ## Key Commands
 
 | Command | Purpose |
 |---------|---------|
-| `agent doctor` | Verify environment and worker CLIs |
-| `agent run <task>` | Execute a task |
-| `agent follow <run_id>` | Tail run progress in real-time |
-| `agent report <run_id>` | Generate run report |
-| `agent resume <run_id>` | Resume a stopped run |
-| `agent status` | Show current run status |
+| `runr doctor` | Verify environment and worker CLIs |
+| `runr run --task <file>` | Execute a task |
+| `runr follow <run_id>` | Tail run progress in real-time |
+| `runr report <run_id>` | Generate run report |
+| `runr resume <run_id>` | Resume a stopped run |
+| `runr status` | Show current run status |
+
+### Fun Aliases
+
+Same commands, different vibe:
+
+```bash
+runr summon --task task.md   # run
+runr resurrect <id>          # resume
+runr scry <id>               # status
+runr banish                  # gc
+```
 
 See [CLI Reference](cli.md) for all commands.
 
 ## Canonical Paths
 
-All agent files live under `.agent/` in your project:
+All runr files live under `.runr/` in your project:
 
 ```
-.agent/
-  agent.config.json     # Configuration
-  tasks/                # Task definitions
-  runs/<run_id>/        # Run artifacts
-    state.json          # Run state
-    timeline.jsonl      # Event log
-  worktrees/<run_id>/   # Isolated git worktree (if --worktree used)
+.runr/
+  runr.config.json    # Configuration
+  tasks/              # Task definitions
+  runs/<run_id>/      # Run artifacts
+    state.json        # Run state
+    timeline.jsonl    # Event log
+.runr-worktrees/
+  <run_id>/           # Isolated git worktree (if --worktree used)
 ```
+
+> **Note**: Legacy `.agent/` paths are still supported with deprecation warnings.
 
 ## Next Steps
 

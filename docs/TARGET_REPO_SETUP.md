@@ -1,6 +1,6 @@
-# Using Agent Framework in Your Project
+# Using Runr in Your Project
 
-This guide explains how to set up and run the agent in any target repository.
+This guide explains how to set up and run Runr in any target repository.
 
 ## Prerequisites
 
@@ -13,8 +13,8 @@ This guide explains how to set up and run the agent in any target repository.
 Not yet published to npm. Install from source:
 
 ```bash
-git clone https://github.com/vonwao/agent-runner.git
-cd agent-runner
+git clone https://github.com/vonwao/runr.git
+cd runr
 npm install
 npm run build
 npm link
@@ -23,8 +23,8 @@ npm link
 Verify installation:
 
 ```bash
-agent version
-agent doctor
+runr version
+runr doctor
 ```
 
 ## Project Setup
@@ -33,12 +33,12 @@ agent doctor
 
 ```bash
 cd /path/to/your-project
-mkdir -p .agent/tasks
+mkdir -p .runr/tasks
 ```
 
 ### 2. Create config file
 
-Create `.agent/agent.config.json`:
+Create `.runr/runr.config.json`:
 
 ```json
 {
@@ -64,7 +64,7 @@ See [Configuration Reference](configuration.md) for full schema.
 
 ### 3. Create a task file
 
-Create `.agent/tasks/my-task.md`:
+Create `.runr/tasks/my-task.md`:
 
 ```markdown
 # Add User Authentication
@@ -88,32 +88,38 @@ Add login/logout functionality.
 ### Basic run
 
 ```bash
-agent run --task .agent/tasks/my-task.md
+runr run --task .runr/tasks/my-task.md
 ```
 
 ### With worktree isolation (recommended)
 
 ```bash
-agent run --task .agent/tasks/my-task.md --worktree
+runr run --task .runr/tasks/my-task.md --worktree
 ```
 
 ### With time limit
 
 ```bash
-agent run --task .agent/tasks/my-task.md --worktree --time 30
+runr run --task .runr/tasks/my-task.md --worktree --time 30
+```
+
+### Fun mode
+
+```bash
+runr summon --task .runr/tasks/my-task.md --worktree
 ```
 
 ## Monitoring
 
 ```bash
 # Tail progress in real-time
-agent follow latest
+runr follow latest
 
 # Check status
-agent status --all
+runr status --all
 
 # Generate report
-agent report latest
+runr report latest
 ```
 
 ## Common Workflows
@@ -121,20 +127,22 @@ agent report latest
 ### Resume a stopped run
 
 ```bash
-agent resume <run_id>
+runr resume <run_id>
+# or: runr resurrect <run_id>
 ```
 
 ### Clean up old worktrees
 
 ```bash
-agent gc --dry-run  # Preview
-agent gc            # Delete worktrees older than 7 days
+runr gc --dry-run  # Preview
+runr gc            # Delete worktrees older than 7 days
+# or: runr banish --dry-run
 ```
 
 ### View aggregated metrics
 
 ```bash
-agent metrics
+runr metrics
 ```
 
 ## Directory Structure
@@ -142,27 +150,29 @@ agent metrics
 After running, your project will have:
 
 ```
-.agent/
-  agent.config.json     # Configuration
-  tasks/                # Task definitions
+.runr/
+  runr.config.json    # Configuration
+  tasks/              # Task definitions
   runs/
     <run_id>/
-      state.json        # Run state
-      timeline.jsonl    # Event log
-  worktrees/
-    <run_id>/           # Git worktree (if --worktree used)
+      state.json      # Run state
+      timeline.jsonl  # Event log
+.runr-worktrees/
+  <run_id>/           # Git worktree (if --worktree used)
 ```
+
+> **Note**: Legacy `.agent/` paths are still supported with deprecation warnings.
 
 ## Troubleshooting
 
 ### "Config not found"
 
-Ensure `.agent/agent.config.json` exists in your project root.
+Ensure `.runr/runr.config.json` exists in your project root.
 
 ### "Worker not found"
 
 ```bash
-agent doctor
+runr doctor
 ```
 
 Check that Claude CLI is installed and authenticated.
