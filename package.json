@@ -7,6 +7,14 @@
     "runr": "dist/cli.js",
     "agent": "dist/cli.js"
   },
+  "files": [
+    "dist/",
+    "templates/prompts/",
+    "README.md",
+    "LICENSE",
+    "NOTICE",
+    "CHANGELOG.md"
+  ],
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "prepare": "npm run build",
