@@ -51,6 +51,8 @@ export interface DerivedKpi {
   };
   outcome: 'complete' | 'stopped' | 'running' | 'unknown';
   stop_reason: string | null;
+  next_action: 'none' | 'resume' | 'fix_config' | 'resolve_scope_violation' | 'resolve_branch_mismatch' | 'inspect_logs';
+  suggested_command: string | null;
 }
 
 interface TimelineScanResult {
@@ -90,7 +92,9 @@ export async function reportCommand(options: ReportOptions): Promise<void> {
       late_results_ignored: 0
     },
     outcome: 'unknown',
-    stop_reason: null
+    stop_reason: null,
+    next_action: 'inspect_logs',
+    suggested_command: null
   };
   const scan = fs.existsSync(timelinePath)
     ? await scanTimeline(timelinePath, options.tail)
@@ -413,6 +417,34 @@ export function computeKpiFromEvents(events: Array<Record<string, unknown>>): De
     unattributedMs = totalDurationMs - attributedMs;
   }
 
+  // Compute next_action and suggested_command
+  let nextAction: DerivedKpi['next_action'] = 'inspect_logs';
+  let suggestedCommand: string | null = null;
+
+  if (outcome === 'complete') {
+    nextAction = 'none';
+  } else if (outcome === 'stopped' && stopReason) {
+    const resumableReasons = ['verification_failed_max_retries', 'stalled_timeout', 'max_ticks_reached', 'time_budget_exceeded', 'implement_blocked'];
+    const scopeViolationReasons = ['guard_violation', 'plan_scope_violation', 'ownership_violation'];
+    const configIssueReasons = ['plan_parse_failed', 'implement_parse_failed', 'review_parse_failed'];
+
+    if (resumableReasons.includes(stopReason)) {
+      nextAction = 'resume';
+      suggestedCommand = `runr resume <run_id>`;
+    } else if (scopeViolationReasons.includes(stopReason)) {
+      nextAction = 'resolve_scope_violation';
+      suggestedCommand = `# Review .runr/runr.config.json scope settings`;
+    } else if (stopReason === 'parallel_file_collision') {
+      nextAction = 'resolve_branch_mismatch';
+      suggestedCommand = `# Wait for conflicting run to finish, then resume`;
+    } else if (configIssueReasons.includes(stopReason)) {
+      nextAction = 'fix_config';
+      suggestedCommand = `runr init --interactive`;
+    }
+  } else if (outcome === 'running') {
+    suggestedCommand = `runr status <run_id>`;
+  }
+
   return {
     version: 1,
     total_duration_ms: totalDurationMs,
@@ -440,7 +472,9 @@ export function computeKpiFromEvents(events: Array<Record<string, unknown>>): De
       late_results_ignored: lateResultsIgnored
     },
     outcome,
-    stop_reason: stopReason
+    stop_reason: stopReason,
+    next_action: nextAction,
+    suggested_command: suggestedCommand
   };
 }
 

@@ -105,13 +105,18 @@ The agent becomes your operator. Runr stays the reliable execution layer.
 # Install
 npm install -g @weldr/runr
 
-# Verify
-runr version
-runr doctor
+# Initialize in your project
+cd /your/project
+runr init
 
 # Run a task
-cd /your/project
-runr run --task .runr/tasks/my-task.md --worktree
+runr run --task .runr/tasks/example-feature.md --worktree
+
+# If it fails, resume from last checkpoint
+runr resume <run_id>
+
+# Get machine-readable output
+runr report <run_id> --json
 ```
 
 > Prefer source install? See [Development](#development).
@@ -154,11 +159,13 @@ Available: `nextjs`, `react`, `drizzle`, `prisma`, `vitest`, `jest`, `playwright
 
 | Command | What it does |
 |---------|--------------|
+| `runr init` | Initialize config (auto-detect verify commands) |
 | `runr run --task <file>` | Start a task |
 | `runr resume <id>` | Continue from checkpoint |
+| `runr watch <id> --auto-resume` | Watch run + auto-resume on failure |
 | `runr status [id]` | Show run state |
 | `runr follow [id]` | Tail run progress |
-| `runr report <id>` | Generate run report |
+| `runr report <id>` | Generate run report (includes next_action) |
 | `runr gc` | Clean up old runs |
 | `runr doctor` | Check environment |
 

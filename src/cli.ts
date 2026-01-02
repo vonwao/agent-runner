@@ -16,6 +16,7 @@ import { pathsCommand } from './commands/paths.js';
 import { metricsCommand } from './commands/metrics.js';
 import { versionCommand } from './commands/version.js';
 import { initCommand } from './commands/init.js';
+import { watchCommand } from './commands/watch.js';
 import { CollisionPolicy } from './orchestrator/types.js';
 
 const program = new Command();
@@ -289,6 +290,26 @@ program
       repo: options.repo,
       dryRun: options.dryRun,
       olderThan: Number.parseInt(options.olderThan, 10)
+    });
+  });
+
+program
+  .command('watch')
+  .description('Watch run progress and optionally auto-resume on failure')
+  .argument('<runId>', 'Run ID to watch')
+  .option('--repo <path>', 'Target repo path (default: current directory)', '.')
+  .option('--auto-resume', 'Automatically resume on transient failures', false)
+  .option('--max-attempts <N>', 'Maximum auto-resume attempts (default: 3)', '3')
+  .option('--interval <seconds>', 'Poll interval in seconds (default: 5)', '5')
+  .option('--json', 'Output JSON events', false)
+  .action(async (runId: string, options) => {
+    await watchCommand({
+      runId,
+      repo: options.repo,
+      autoResume: options.autoResume,
+      maxAttempts: Number.parseInt(options.maxAttempts, 10),
+      interval: Number.parseInt(options.interval, 10) * 1000,
+      json: options.json
     });
   });
 
