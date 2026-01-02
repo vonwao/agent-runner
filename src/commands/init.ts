@@ -18,7 +18,85 @@ interface DetectedVerification {
 interface DetectionResult {
   verification: DetectedVerification;
   presets: string[];
-  source: 'package.json' | 'heuristic' | 'none';
+  source: 'package.json' | 'python' | 'heuristic' | 'none';
+}
+
+/**
+ * Detect Python project verification commands
+ */
+function detectPythonVerification(repoPath: string): DetectionResult | null {
+  const hasPyprojectToml = fs.existsSync(path.join(repoPath, 'pyproject.toml'));
+  const hasPytestIni = fs.existsSync(path.join(repoPath, 'pytest.ini'));
+  const hasPoetryLock = fs.existsSync(path.join(repoPath, 'poetry.lock'));
+
+  // If no Python markers, return null
+  if (!hasPyprojectToml && !hasPytestIni && !hasPoetryLock) {
+    return null;
+  }
+
+  const verification: DetectedVerification = {
+    tier0: [],
+    tier1: [],
+    tier2: []
+  };
+
+  const presets: string[] = [];
+
+  // Parse pyproject.toml if it exists
+  let pyprojectContent: any = null;
+  if (hasPyprojectToml) {
+    try {
+      const pyprojectPath = path.join(repoPath, 'pyproject.toml');
+      const content = fs.readFileSync(pyprojectPath, 'utf-8');
+
+      // Simple TOML parsing for common sections
+      // Look for [tool.poetry], [tool.pytest], etc.
+      if (content.includes('[tool.poetry]') || hasPoetryLock) {
+        presets.push('poetry');
+        // Tier 1: Poetry install/check
+        verification.tier1.push('poetry check');
+      }
+
+      if (content.includes('[tool.pytest]') || hasPytestIni) {
+        presets.push('pytest');
+        // Tier 2: Run tests
+        verification.tier2.push('pytest');
+      }
+
+      // Check for mypy, black, ruff, etc.
+      if (content.includes('[tool.mypy]') || content.includes('mypy')) {
+        verification.tier0.push('mypy .');
+      }
+
+      if (content.includes('[tool.black]') || content.includes('black')) {
+        verification.tier0.push('black --check .');
+      }
+
+      if (content.includes('[tool.ruff]') || content.includes('ruff')) {
+        verification.tier0.push('ruff check .');
+      }
+
+    } catch {
+      // If parsing fails, continue with basic detection
+    }
+  }
+
+  // If pytest.ini exists but not already detected
+  if (hasPytestIni && !verification.tier2.includes('pytest')) {
+    presets.push('pytest');
+    verification.tier2.push('pytest');
+  }
+
+  // If nothing was detected, return null
+  if (verification.tier0.length === 0 && verification.tier1.length === 0 && verification.tier2.length === 0) {
+    return null;
+  }
+
+  return {
+    verification,
+    presets,
+    source: 'python'
+  };
 }
 
 /**
@@ -278,8 +356,10 @@ export async function initCommand(options: InitOptions): Promise<void> {
     process.exit(1);
   }
 
-  // Detect verification commands
-  const detection = detectFromPackageJson(repoPath) || generateDefaultConfig(repoPath);
+  // Detect verification commands - try Python first, then package.json, then default
+  const detection = detectPythonVerification(repoPath) ||
+                    detectFromPackageJson(repoPath) ||
+                    generateDefaultConfig(repoPath);
 
   // Build config
   const config = buildConfig(repoPath, detection);
@@ -319,8 +399,23 @@ export async function initCommand(options: InitOptions): Promise<void> {
       console.log(`  presets: ${detection.presets.join(', ')}`);
     }
     console.log('');
+  } else if (detection.source === 'python') {
+    console.log('Detected Python project:');
+    if (detection.verification.tier0.length > 0) {
+      console.log(`  tier0 (fast): ${detection.verification.tier0.join(', ')}`);
+    }
+    if (detection.verification.tier1.length > 0) {
+      console.log(`  tier1 (build): ${detection.verification.tier1.join(', ')}`);
+    }
+    if (detection.verification.tier2.length > 0) {
+      console.log(`  tier2 (tests): ${detection.verification.tier2.join(', ')}`);
+    }
+    if (detection.presets.length > 0) {
+      console.log(`  presets: ${detection.presets.join(', ')}`);
+    }
+    console.log('');
   } else {
-    console.log('⚠️  No verification commands detected from package.json');
+    console.log('⚠️  No verification commands detected');
     console.log('Edit .runr/runr.config.json to add verification commands\n');
     console.log('Tip: Run `runr init --interactive` for guided setup\n');
   }
