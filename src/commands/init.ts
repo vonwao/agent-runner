@@ -366,6 +366,15 @@ export async function initCommand(options: InitOptions): Promise<void> {
   const runrDir = path.join(repoPath, '.runr');
   const configPath = path.join(runrDir, 'runr.config.json');
 
+  // Handle --interactive flag
+  if (options.interactive) {
+    console.log('🚧 Interactive setup is planned for a future release');
+    console.log('');
+    console.log('For now, use `runr init` without --interactive to generate config automatically,');
+    console.log('then edit .runr/runr.config.json to customize verification commands.');
+    process.exit(0);
+  }
+
   // Check if config already exists
   if (fs.existsSync(configPath) && !options.force) {
     console.error('Error: .runr/runr.config.json already exists');
