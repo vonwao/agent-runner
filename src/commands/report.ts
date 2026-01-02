@@ -13,6 +13,7 @@ export interface ReportOptions {
   runId: string;
   tail: number;
   kpiOnly?: boolean;
+  json?: boolean;
   repo: string;
 }
 
@@ -118,6 +119,12 @@ export async function reportCommand(options: ReportOptions): Promise<void> {
   ].join('\n');
 
   const kpiBlock = formatKpiBlock(scan.kpi, contextPackArtifact);
+
+  if (options.json) {
+    // JSON output: full KPI object with next_action and suggested_command
+    console.log(JSON.stringify(scan.kpi, null, 2));
+    return;
+  }
 
   if (options.kpiOnly) {
     // Compact output: just run_id and KPIs

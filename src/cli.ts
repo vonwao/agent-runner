@@ -157,6 +157,7 @@ program
   .option('--repo <path>', 'Target repo path (default: current directory)', '.')
   .option('--tail <count>', 'Tail last N events', '50')
   .option('--kpi-only', 'Show compact KPI summary only')
+  .option('--json', 'Output KPI as JSON (includes next_action and suggested_command)')
   .action(async (runId: string, options) => {
     let resolvedRunId = runId;
     if (runId === 'latest') {
@@ -171,7 +172,8 @@ program
       runId: resolvedRunId,
       repo: options.repo,
       tail: Number.parseInt(options.tail, 10),
-      kpiOnly: options.kpiOnly
+      kpiOnly: options.kpiOnly,
+      json: options.json
     });
   });
 
