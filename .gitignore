@@ -8,3 +8,4 @@ apps/deckbuilder/package-lock.json
 context-pack.*
 scripts/
 src.zip
+.runr-worktrees/

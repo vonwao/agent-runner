@@ -10,9 +10,12 @@
 
 ```bash
 npm install -g @weldr/runr
+cd your-repo
 runr init
 runr run --task .runr/tasks/your-task.md --worktree
 ```
+
+**If it stops:** Run the suggested command in `.runr/runs/<run_id>/handoffs/stop.json`
 
 ![Next Action](demo/next-action.gif)
 
@@ -73,7 +76,7 @@ Just tell your coding agent:
 
 The agent will:
 1. Create a task file (`.runr/tasks/add-auth.md`)
-2. Run `runr run --task ... --worktree --json`
+2. Run `runr run --task ... --worktree`
 3. Monitor progress with `runr status`
 4. Handle failures, resume from checkpoints
 5. Report results with commit links
@@ -108,8 +111,9 @@ runr run --task .runr/tasks/example-feature.md --worktree
 # If it fails, resume from last checkpoint
 runr resume <run_id>
 
-# Get machine-readable output
-runr report <run_id> --json
+# Get machine-readable diagnostics
+runr summarize <run_id>
+# Output: .runr/runs/<run_id>/handoffs/stop.json
 ```
 
 > Prefer source install? See [Development](#development).

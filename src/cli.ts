@@ -5,6 +5,7 @@ import { resumeCommand } from './commands/resume.js';
 import { statusCommand, statusAllCommand } from './commands/status.js';
 import { reportCommand, findLatestRunId } from './commands/report.js';
 import { summarizeCommand } from './commands/summarize.js';
+import { nextCommand } from './commands/next.js';
 import { compareCommand } from './commands/compare.js';
 import { guardsOnlyCommand } from './commands/guards-only.js';
 import { doctorCommand } from './commands/doctor.js';
@@ -193,6 +194,24 @@ program
       resolvedRunId = latest;
     }
     await summarizeCommand({ runId: resolvedRunId, repo: options.repo });
+  });
+
+program
+  .command('next')
+  .description('Print suggested next command from stop handoff')
+  .argument('<runId>', 'Run ID (or "latest")')
+  .option('--repo <path>', 'Target repo path (default: current directory)', '.')
+  .action(async (runId: string, options) => {
+    let resolvedRunId = runId;
+    if (runId === 'latest') {
+      const latest = findLatestRunId(options.repo);
+      if (!latest) {
+        console.error('No runs found');
+        process.exit(1);
+      }
+      resolvedRunId = latest;
+    }
+    await nextCommand(resolvedRunId, { repo: options.repo });
   });
 
 program
