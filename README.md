@@ -35,6 +35,12 @@ When a run fails (and it will), you get:
 - **Scope guards** — files it couldn't touch, it didn't touch
 - **Evidence** — "done" means "proven done"
 
+## Demo
+
+![Runr Checkpoint Demo](https://i.imgur.com/XVFpTUZ.gif)
+
+*Checkpoints are real git commits created after each verified milestone. If a later milestone fails, resume from the last checkpoint without redoing completed work.*
+
 ## Quick Start
 
 ```bash
