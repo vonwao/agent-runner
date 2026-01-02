@@ -1,0 +1,16 @@
+{
+  "agent": {
+    "name": "my-project",
+    "version": "1"
+  },
+  "scope": {
+    "presets": ["typescript", "vitest"],
+    "allowlist": ["src/**", "tests/**"],
+    "denylist": ["node_modules/**", ".env"]
+  },
+  "verification": {
+    "tier0": ["npm run typecheck"],
+    "tier1": ["npm run build"],
+    "tier2": ["npm test"]
+  }
+}

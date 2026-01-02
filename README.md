@@ -41,7 +41,65 @@ When a run fails (and it will), you get:
 
 *Checkpoints are real git commits created after each verified milestone. If a later milestone fails, resume from the last checkpoint without redoing completed work.*
 
-## Quick Start
+## Meta-Agent Quickstart (Recommended)
+
+**The easiest way to use Runr:** Let your coding agent drive it.
+
+Runr works as a **reliable execution backend**. Instead of learning CLI commands, your agent (Claude Code, Codex, etc.) operates Runr for you — handling runs, interpreting failures, and resuming from checkpoints.
+
+### Setup (One-Time)
+
+```bash
+# 1. Install Runr
+npm install -g @weldr/runr
+
+# 2. Verify environment
+runr doctor
+
+# 3. Create minimal config
+mkdir -p .runr/tasks
+cat > .runr/runr.config.json << 'EOF'
+{
+  "agent": { "name": "my-project", "version": "1" },
+  "scope": {
+    "presets": ["typescript", "vitest"]
+  },
+  "verification": {
+    "tier0": ["npm run typecheck"],
+    "tier1": ["npm test"]
+  }
+}
+EOF
+```
+
+### Usage
+
+Just tell your coding agent:
+
+> "Use Runr to add user authentication with OAuth2. Create checkpoints after each milestone."
+
+The agent will:
+1. Create a task file (`.runr/tasks/add-auth.md`)
+2. Run `runr run --task ... --worktree --json`
+3. Monitor progress with `runr status`
+4. Handle failures, resume from checkpoints
+5. Report results with commit links
+
+**See [RUNR_OPERATOR.md](./RUNR_OPERATOR.md)** for the complete agent integration guide.
+
+### Why This Works
+
+Most devs already have a coding agent open. Telling them:
+- "Drop this in your agent, and it'll drive Runr for you"
+
+…has near-zero friction compared to:
+- "Learn these CLI commands, create config files, understand phase gates"
+
+The agent becomes your operator. Runr stays the reliable execution layer.
+
+---
+
+## Quick Start (Direct CLI)
 
 ```bash
 # Install
