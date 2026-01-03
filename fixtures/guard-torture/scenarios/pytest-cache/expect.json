@@ -1,0 +1,16 @@
+{
+  "tool": "pytest",
+  "cache_location": ".pytest_cache/",
+  "patterns": [
+    ".pytest_cache/"
+  ],
+  "expected_with_gitignore": {
+    "guard_violation": false,
+    "ignored_count": ">= 1",
+    "reason": "pytest cache gitignored"
+  },
+  "expected_without_gitignore": {
+    "guard_violation": true,
+    "reason": ".pytest_cache/ not in allowlist and not ignored"
+  }
+}

@@ -1,0 +1,17 @@
+{
+  "tool": "coverage/nyc",
+  "cache_location": "coverage/, .nyc_output/",
+  "patterns": [
+    "coverage/",
+    ".nyc_output/"
+  ],
+  "expected_with_gitignore": {
+    "guard_violation": false,
+    "ignored_count": ">= 1",
+    "reason": "Coverage artifacts gitignored"
+  },
+  "expected_without_gitignore": {
+    "guard_violation": true,
+    "reason": "coverage/ not in allowlist and not ignored"
+  }
+}

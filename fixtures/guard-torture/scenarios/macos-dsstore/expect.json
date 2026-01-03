@@ -1,0 +1,18 @@
+{
+  "tool": "macOS Finder",
+  "cache_location": ".DS_Store, ._* files",
+  "patterns": [
+    ".DS_Store",
+    "._*"
+  ],
+  "expected_with_gitignore": {
+    "guard_violation": false,
+    "ignored_count": ">= 1",
+    "reason": "macOS metadata gitignored"
+  },
+  "expected_without_gitignore": {
+    "guard_violation": true,
+    "reason": ".DS_Store not in allowlist and not ignored"
+  },
+  "note": "Universal noise pattern - should be in global gitignore"
+}

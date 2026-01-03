@@ -1,0 +1,17 @@
+{
+  "tool": "vite",
+  "cache_location": "node_modules/.vite/",
+  "patterns": [
+    "node_modules/.vite/deps/",
+    "node_modules/.vite/deps_temp/"
+  ],
+  "expected_with_gitignore": {
+    "guard_violation": false,
+    "ignored_count": ">= 1",
+    "reason": "Vite caches under node_modules, gitignored"
+  },
+  "expected_without_gitignore": {
+    "guard_violation": true,
+    "reason": "node_modules/ not in allowlist and not ignored"
+  }
+}

@@ -1,0 +1,140 @@
+Alright. Here are **10 dogfooding “project tracks”** that are *meaningful work*, parallelizable, and will reliably surface the kinds of failures Runr needs to get stronger (tool pollution, flaky verification, resume edge cases, scope collisions, docs drift, etc.).
+
+## 10 Runr Dogfood Tracks (pick 1–2 as your weekly gym)
+
+### 1) “Guard Torture” Repo (tool pollution + ignore semantics)
+
+**Goal:** force guard failures *on purpose* so you can harden semantics.
+**Tasks (parallel):**
+
+* Add common toolchains: tsx/ts-node, vite, eslint, prettier, pytest, uv, pnpm, turbo
+* Run common commands that emit junk: caches, coverage, build outputs
+* Create a matrix of “junk type → expected behavior”
+  **What you learn:** exactly how `git check-ignore` integration should behave + what should be warning vs fail.
+
+### 2) “Verification Harness” (flaky tests + deterministic verify)
+
+**Goal:** make VERIFY robust under real-world flake.
+**Tasks:**
+
+* Add intentionally flaky tests (timing, network mock, randomized ordering)
+* Add retry policy + “flake fingerprinting” in journal (same test fails intermittently)
+* Enforce “verification attempts summary” clarity (passed vs terminal)
+  **What you learn:** how Runr should represent “VERIFY passed once” vs “run ultimately stopped.”
+
+### 3) “Resume Gym” (checkpoint/resume edge cases)
+
+**Goal:** stress resume across different break types.
+**Tasks:**
+
+* Fail on scope once, fail on tests once, fail on lint once, fail on formatting once
+* Resume from checkpoint with changed working tree, with untracked files, with stash, etc.
+* Run multi-milestone tasks where milestone N depends on artifacts from N-1
+  **What you learn:** where resume breaks in practice + what needs to be captured in journal.json.
+
+### 4) “Operator Reality” (docs alignment and meta-agent usability)
+
+**Goal:** make RUNR_OPERATOR.md and prompt actually sufficient.
+**Tasks:**
+
+* Give your meta-agent only RUNR_OPERATOR_PROMPT.txt + repo; see where it fails
+* Add “Case File workflow” to operator docs
+* Add “Definition of Done includes journal link” and enforce it
+  **What you learn:** the delta between “works for you” vs “works for someone else.”
+
+### 5) “CI/Packaging Hardening” (the boring stuff that ships)
+
+**Goal:** real shipping muscle: release automation, npm packaging, changelog discipline.
+**Tasks:**
+
+* Add release checks: verify `files` field, smoke install, run demo scripts in CI
+* Add “demo assets regen” command and ensure deterministic outputs
+* Add a “doctor” command to detect common misinstalls (PATH, global vs local)
+  **What you learn:** fewer support issues after launch.
+
+### 6) “Large Refactor Split” (scope control under pressure)
+
+**Goal:** test scope guard + milestone planning on non-trivial code changes.
+**Tasks:**
+
+* Split a module into 3 packages
+* Change APIs and update dependents
+* Enforce “allowed files only” while still completing a refactor
+  **What you learn:** where scope guard is too strict vs correctly strict.
+
+### 7) “Docs Site with Real Value” (30 parallel, significant work)
+
+**Goal:** parallel tasks that aren’t trivial.
+**Tasks (each task owns 1 page):**
+
+* Add an “Operator Notes” section + examples per command
+* Add troubleshooting scenarios (gitignored junk, caches, resume conflicts)
+* Add a “Common Failure → Fix” matrix
+  **What you learn:** writing forces clarity; also surfaces missing UX commands.
+
+### 8) “Microcourses Factory” (your existing domain, but upgraded)
+
+**Goal:** keep using microcourses, but make tasks *chunky* and verifiable.
+**Tasks (parallel):**
+
+* 10 courses, each with: outline, final content, quiz, rubric, tags, and a validator
+* Verification: schema + link checks + content lint
+  **What you learn:** Runr running lots of similar tasks surfaces repeatable failure modes.
+
+### 9) “Repo Modernization Sprint” (real-world dev chores)
+
+**Goal:** real value + lots of parallel work with low collisions.
+**Tasks:**
+
+* Convert to pnpm, add lint-staged, add commitlint, add typecheck, add CI caching
+* Add codeowners, contributing, security policy
+  **What you learn:** toolchain integration tends to generate caches + new files → guard/journal improvements.
+
+### 10) “Golden Repro Cases” (turn failures into fixtures)
+
+**Goal:** every meaningful failure becomes a reproducible test case.
+**Tasks:**
+
+* When a run stops, add a fixture: minimal repo + command that triggers it
+* Add tests for journal redaction, excerpt capping, warnings behavior
+  **What you learn:** Runr gets stronger without you remembering tribal knowledge.
+
+---
+
+## My take: your best 2-track weekly “Runr Gym”
+
+If you want max signal per week:
+
+### **Gym A (Core reliability): Track 1 + Track 10**
+
+* Build the **Guard Torture Repo**
+* Every time it breaks, capture as a **Golden Repro Case**
+  This directly attacks the `.tmp/` class of failures in a principled way.
+
+### **Gym B (Product readiness): Track 4 + Track 7**
+
+* Operator docs become real, not aspirational
+* Docs site becomes your public-facing “Runr manual”
+  This is what turns a cool project into a usable tool.
+
+---
+
+## Immediate next moves (do these now)
+
+1. **Implement guard ignoring gitignored files** (your highest ROI fix)
+
+   * Use `git check-ignore -z --stdin` for batches (fast + correct)
+   * Behavior suggestion:
+
+     * If a changed path is ignored → **warning** (journal: “ignored tool noise”)
+     * If not ignored and outside allowlist → **fail** (real scope violation)
+2. **Update RUNR_OPERATOR.md + prompt** to include:
+
+   * `runr journal`, `runr note`, `runr open`
+   * “Always attach journal path in DoD”
+3. Pick the weekly gym:
+
+   * If you want fewer random stoppages: start Gym A.
+   * If you want launch-ready confidence: start Gym B.
+
+If you want, I’ll write the **exact “Guard ignores gitignored” spec** (inputs/outputs, edge cases, tests, perf approach) so you can hand it straight to the agent and get a clean PR.

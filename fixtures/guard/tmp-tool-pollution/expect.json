@@ -1,0 +1,29 @@
+{
+  "scenario": "tmp-tool-pollution",
+  "description": "Verification command creates .tmp/ caches (gitignored)",
+  "setup": {
+    "gitignore": [".tmp/"],
+    "allowlist": ["src/", "tests/"],
+    "changed_paths": [
+      ".tmp/node-compile-cache/some-hash.bin",
+      ".tmp/tsx-501/transform-cache.json"
+    ]
+  },
+  "expected": {
+    "guard_result": "ok",
+    "guard_violation": false,
+    "ignored_count": 2,
+    "ignored_paths": [
+      ".tmp/node-compile-cache/some-hash.bin",
+      ".tmp/tsx-501/transform-cache.json"
+    ],
+    "journal_warnings": [
+      "Guard ignored 2 files (tool noise)"
+    ]
+  },
+  "without_gitignore": {
+    "guard_result": "violation",
+    "guard_violation": true,
+    "reason": ".tmp/ not in allowlist and not gitignored"
+  }
+}

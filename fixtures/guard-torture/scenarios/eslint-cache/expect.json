@@ -1,0 +1,17 @@
+{
+  "tool": "eslint",
+  "cache_location": ".eslintcache",
+  "patterns": [
+    ".eslintcache",
+    ".eslintcache_dir/"
+  ],
+  "expected_with_gitignore": {
+    "guard_violation": false,
+    "ignored_count": ">= 1",
+    "reason": "ESLint cache gitignored"
+  },
+  "expected_without_gitignore": {
+    "guard_violation": true,
+    "reason": ".eslintcache not in allowlist and not ignored"
+  }
+}

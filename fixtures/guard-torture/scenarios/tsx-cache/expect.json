@@ -1,0 +1,17 @@
+{
+  "tool": "tsx/ts-node",
+  "cache_location": ".tmp/",
+  "patterns": [
+    ".tmp/tsx-*/",
+    ".tmp/node-compile-cache/"
+  ],
+  "expected_with_gitignore": {
+    "guard_violation": false,
+    "ignored_count": ">= 1",
+    "reason": "Tool caches gitignored, should not trigger guard"
+  },
+  "expected_without_gitignore": {
+    "guard_violation": true,
+    "reason": ".tmp/ not in allowlist and not ignored"
+  }
+}
