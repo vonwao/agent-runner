@@ -1,0 +1,19 @@
+{
+  "goal": "Test resume after verification failure",
+  "milestones": [
+    {
+      "title": "Milestone 1: Setup (passes)",
+      "task": "Create initial setup that passes verification"
+    },
+    {
+      "title": "Milestone 2: Feature (fails verify initially)",
+      "task": "Add feature that fails tests until fixed"
+    }
+  ],
+  "scope": {
+    "allowlist": ["src/**", "tests/**", ".flag-*"]
+  },
+  "verification": {
+    "commands": ["bash scripts/verify.sh"]
+  }
+}

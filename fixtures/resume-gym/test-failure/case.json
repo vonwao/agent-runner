@@ -1,0 +1,14 @@
+{
+  "id": "test-failure",
+  "order": 10,
+  "description": "Milestone 2 verify fails; resume starts at milestone 2 without rerunning milestone 1.",
+  "run": {
+    "args": ["run", "tasks.json", "--no-watch"]
+  },
+  "resume": {
+    "args": ["resume"]
+  },
+  "env": {
+    "RUNR_VERIFY_MAX_ATTEMPTS": "3"
+  }
+}

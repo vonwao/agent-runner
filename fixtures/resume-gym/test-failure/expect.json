@@ -1,0 +1,19 @@
+{
+  "expect_stop": {
+    "terminal_state": "stopped",
+    "stop_reason": "verification_failed_max_retries"
+  },
+  "expect_resume": {
+    "terminal_state": "complete",
+    "resumed_from_milestone_index": 1
+  },
+  "expect_invariants": {
+    "no_duplicate_checkpoints": true,
+    "milestone_1_not_rerun": true,
+    "resume_event_appended": true,
+    "journal_has_resume_section": true
+  },
+  "expect_status_contains": [
+    "Resumed from checkpoint"
+  ]
+}
