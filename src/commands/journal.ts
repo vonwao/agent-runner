@@ -9,7 +9,7 @@ import path from 'node:path';
 import { execSync } from 'node:child_process';
 import { buildJournal } from '../journal/builder.js';
 import { renderJournal } from '../journal/renderer.js';
-import { getRunsRoot } from '../store/runs-root.js';
+import { getRunrPaths } from '../store/runs-root.js';
 
 interface JournalOptions {
   repo?: string;
@@ -43,7 +43,7 @@ export async function journalCommand(options: JournalOptions): Promise<void> {
     process.exit(1);
   }
 
-  const runDir = path.join(getRunsRoot(repo), runId);
+  const runDir = path.join(getRunrPaths(repo).runs_dir, runId);
 
   if (!fs.existsSync(runDir)) {
     console.error(`ERROR: Run directory not found: ${runDir}`);
@@ -99,7 +99,7 @@ export async function noteCommand(message: string, options: NoteOptions): Promis
     process.exit(1);
   }
 
-  const runDir = path.join(getRunsRoot(repo), runId);
+  const runDir = path.join(getRunrPaths(repo).runs_dir, runId);
 
   if (!fs.existsSync(runDir)) {
     console.error(`ERROR: Run directory not found: ${runDir}`);
@@ -139,7 +139,7 @@ export async function openCommand(options: OpenOptions): Promise<void> {
     process.exit(1);
   }
 
-  const runDir = path.join(getRunsRoot(repo), runId);
+  const runDir = path.join(getRunrPaths(repo).runs_dir, runId);
   const journalPath = path.join(runDir, 'journal.md');
 
   if (!fs.existsSync(journalPath)) {
@@ -156,8 +156,20 @@ export async function openCommand(options: OpenOptions): Promise<void> {
     }
   }
 
-  // Open in editor
-  const editor = process.env.EDITOR || 'vim';
+  // Open in editor (with non-interactive safety)
+  const editor = process.env.EDITOR;
+
+  // Check if running in non-interactive environment (CI, no TTY)
+  const isInteractive = process.stdout.isTTY && process.stdin.isTTY;
+
+  if (!isInteractive || !editor) {
+    // Non-interactive or no editor set: print path instead of hanging
+    console.log(`Journal: ${journalPath}`);
+    if (!editor) {
+      console.log('Tip: Set $EDITOR to open journals automatically');
+    }
+    return;
+  }
 
   try {
     execSync(`${editor} "${journalPath}"`, { stdio: 'inherit' });
@@ -171,7 +183,7 @@ export async function openCommand(options: OpenOptions): Promise<void> {
  * Find the latest run ID in the runs directory
  */
 function findLatestRunId(repo: string): string | null {
-  const runsRoot = getRunsRoot(repo);
+  const runsRoot = getRunrPaths(repo).runs_dir;
 
   if (!fs.existsSync(runsRoot)) {
     return null;

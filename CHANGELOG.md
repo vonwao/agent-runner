@@ -7,6 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-01-03
+
+**Case Files** — Every run leaves a machine-readable journal.
+
+### Added
+
+- **Case Files**: Auto-generated `journal.md` + `journal.json` for every run
+  - Schema v1.0 with immutable facts (timestamps, milestones, verification attempts)
+  - Living data (append-only notes)
+  - Secret redaction in error excerpts
+  - Warnings array captures all extraction issues
+- **CLI Commands**:
+  - `runr journal [run_id]` — Generate and display journal (defaults to latest)
+  - `runr note <message> [--run-id]` — Add timestamped note (defaults to latest)
+  - `runr open [run_id]` — Open journal in $EDITOR (defaults to latest)
+- **Auto-generation**: Journals written on run completion (stop or finish)
+- **Non-interactive safety**: `runr open` fails cleanly in CI or when $EDITOR unset
+
+### Fixed
+
+- **Package bloat**: Excluded test files from npm package (81 → 69 files)
+- **Deprecation warnings**: Replaced deprecated `getRunsRoot()` with `getRunrPaths().runs_dir`
+
 ## [0.3.0] - 2026-01-01
 
 **Renamed to Runr.** New identity, same reliability-first mission.

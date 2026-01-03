@@ -1,6 +1,6 @@
 {
   "name": "@weldr/runr",
-  "version": "0.3.1",
+  "version": "0.4.0",
   "description": "Phase-gated orchestration for agent tasks",
   "type": "module",
   "bin": {
@@ -9,6 +9,8 @@
   },
   "files": [
     "dist/",
+    "!dist/**/__tests__/",
+    "!dist/**/*.test.js",
     "templates/prompts/",
     "README.md",
     "LICENSE",

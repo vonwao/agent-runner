@@ -1,0 +1,31 @@
+# Test files
+**/__tests__/
+**/*.test.js
+**/*.test.ts
+tests/
+test/
+
+# Source files (only ship dist/)
+src/
+
+# Development
+.vscode/
+.idea/
+*.log
+.DS_Store
+
+# CI
+.github/
+
+# Documentation (except what's in package.json files[])
+docs/
+CONTRIBUTING.md
+RUNR_OPERATOR.md
+
+# Build artifacts
+tsconfig.json
+tsconfig.*.json
+vitest.config.ts
+
+# Demo apps
+apps/
