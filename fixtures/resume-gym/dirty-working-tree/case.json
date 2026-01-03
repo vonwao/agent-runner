@@ -1,0 +1,15 @@
+{
+  "id": "dirty-working-tree",
+  "order": 40,
+  "description": "Resume refuses dirty working tree by default, proceeds with --auto-stash",
+  "run": {
+    "args": ["run", "tasks.json", "--no-watch"]
+  },
+  "resume": {
+    "args": ["resume"]
+  },
+  "resume_with_autostash": {
+    "args": ["resume", "--auto-stash"]
+  },
+  "env": {}
+}

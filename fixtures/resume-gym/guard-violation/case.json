@@ -1,0 +1,12 @@
+{
+  "id": "guard-violation",
+  "order": 30,
+  "description": "Milestone creates file outside allowlist, resume continues after fix",
+  "run": {
+    "args": ["run", "tasks.json", "--no-watch"]
+  },
+  "resume": {
+    "args": ["resume"]
+  },
+  "env": {}
+}

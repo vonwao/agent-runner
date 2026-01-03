@@ -125,6 +125,7 @@ program
   .option('--force', 'Resume despite env fingerprint mismatch', false)
   .option('--auto-resume', 'Continue auto-resuming on transient failures', false)
   .option('--auto-stash', 'Automatically stash uncommitted changes before resume', false)
+  .option('--plan', 'Print resume plan and exit without resuming', false)
   .action(async (runId: string, options) => {
     await resumeCommand({
       runId,
@@ -135,7 +136,8 @@ program
       config: options.config,
       force: options.force,
       autoResume: options.autoResume,
-      autoStash: options.autoStash
+      autoStash: options.autoStash,
+      plan: options.plan
     });
   });
 

@@ -1,0 +1,15 @@
+{
+  "expect_stop": {
+    "terminal_state": "stopped",
+    "stop_reason": "verification_failed_max_retries"
+  },
+  "expect_resume": {
+    "terminal_state": "complete",
+    "resumed_from_milestone_index": 1
+  },
+  "expect_invariants": {
+    "no_duplicate_checkpoints": true,
+    "milestone_0_not_rerun": true,
+    "resume_event_appended": true
+  }
+}

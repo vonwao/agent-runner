@@ -1586,7 +1586,7 @@ async function handleCheckpoint(state: RunState, options: SupervisorOptions): Pr
   const status = await git(['status', '--porcelain'], options.repoPath);
   if (status.stdout.trim().length > 0) {
     await git(['add', '-A'], options.repoPath);
-    const message = `chore(agent): checkpoint milestone ${state.milestone_index + 1}`;
+    const message = `chore(runr): checkpoint ${state.run_id} milestone ${state.milestone_index}`;
     await git(['commit', '-m', message], options.repoPath);
   }
 

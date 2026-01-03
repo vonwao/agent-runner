@@ -1,0 +1,15 @@
+{
+  "goal": "Test dirty working tree resume policy",
+  "milestones": [
+    {
+      "title": "Milestone 1: Initial work",
+      "task": "Create initial files that pass verification"
+    }
+  ],
+  "scope": {
+    "allowlist": ["src/**"]
+  },
+  "verification": {
+    "commands": ["bash scripts/verify.sh"]
+  }
+}

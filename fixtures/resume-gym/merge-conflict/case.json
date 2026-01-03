@@ -1,0 +1,12 @@
+{
+  "id": "merge-conflict",
+  "order": 50,
+  "description": "Detects uncommitted changes that would conflict, refuses cleanly",
+  "run": {
+    "args": ["run", "tasks.json", "--no-watch"]
+  },
+  "resume": {
+    "args": ["resume"]
+  },
+  "env": {}
+}

@@ -1,0 +1,19 @@
+{
+  "goal": "Test resume after lint failure",
+  "milestones": [
+    {
+      "title": "Milestone 1: Clean code (passes)",
+      "task": "Create initial code that passes linter"
+    },
+    {
+      "title": "Milestone 2: Lint error (fails verify initially)",
+      "task": "Add code that fails lint until fixed"
+    }
+  ],
+  "scope": {
+    "allowlist": ["src/**", ".flag-*"]
+  },
+  "verification": {
+    "commands": ["bash scripts/verify.sh"]
+  }
+}

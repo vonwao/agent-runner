@@ -1,0 +1,19 @@
+{
+  "goal": "Test guard violation and resume",
+  "milestones": [
+    {
+      "title": "Milestone 1: Valid work",
+      "task": "Create files in allowed directory"
+    },
+    {
+      "title": "Milestone 2: Violates guard",
+      "task": "Create file outside allowlist (will trigger guard)"
+    }
+  ],
+  "scope": {
+    "allowlist": ["src/**"]
+  },
+  "verification": {
+    "commands": ["bash scripts/verify.sh"]
+  }
+}

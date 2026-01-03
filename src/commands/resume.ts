@@ -21,6 +21,7 @@ export interface ResumeOptions {
   repo: string;
   autoResume: boolean;
   autoStash?: boolean;
+  plan?: boolean;
 }
 
 /**
@@ -146,15 +147,18 @@ async function buildResumePlan(options: {
   const { state, repoPath, runStore, config } = options;
 
   // Find last checkpoint via git log
+  // Try run-specific pattern first, then fallback to legacy
   let checkpointSha: string | null = null;
   let lastCheckpointMilestoneIndex = -1;
 
+  // First: try new format with run_id
   try {
+    const runSpecificPattern = `^chore\\(runr\\): checkpoint ${state.run_id} milestone `;
     const result = await git(
       [
         'log',
         '-z',
-        '--grep', '^chore\\(agent\\): checkpoint milestone ',
+        '--grep', runSpecificPattern,
         '-n', '1',
         '--pretty=format:%H%x00%s'
       ],
@@ -167,14 +171,45 @@ async function buildResumePlan(options: {
       const commitMessage = parts[1] || '';
 
       // Extract milestone index from commit message
-      // Format: "chore(agent): checkpoint milestone <N>"
-      const match = commitMessage.match(/checkpoint milestone (\d+)/);
+      // Format: "chore(runr): checkpoint <run_id> milestone <N>"
+      const match = commitMessage.match(/milestone (\d+)/);
       if (match) {
         lastCheckpointMilestoneIndex = parseInt(match[1], 10);
       }
     }
   } catch {
-    // No checkpoint found, start from beginning
+    // Run-specific checkpoint not found
+  }
+
+  // Fallback: try legacy format (without run_id)
+  if (checkpointSha === null) {
+    try {
+      const result = await git(
+        [
+          'log',
+          '-z',
+          '--grep', '^chore\\(agent\\): checkpoint milestone ',
+          '-n', '1',
+          '--pretty=format:%H%x00%s'
+        ],
+        repoPath
+      );
+
+      if (result.stdout.trim()) {
+        const parts = result.stdout.trim().split('\0');
+        checkpointSha = parts[0] || null;
+        const commitMessage = parts[1] || '';
+
+        // Extract milestone index from commit message
+        // Format: "chore(agent): checkpoint milestone <N>"
+        const match = commitMessage.match(/checkpoint milestone (\d+)/);
+        if (match) {
+          lastCheckpointMilestoneIndex = parseInt(match[1], 10);
+        }
+      }
+    } catch {
+      // No checkpoint found at all, start from beginning
+    }
   }
 
   const resumeFromMilestoneIndex = lastCheckpointMilestoneIndex + 1;
@@ -218,22 +253,52 @@ async function buildResumePlan(options: {
   };
 }
 
+interface StashInfo {
+  stashRef: string;
+  stashMessage: string;
+  fileCount: number;
+}
+
 /**
  * Assert working tree is clean (REFUSE policy).
+ * If autoStash=true, creates stash and returns info.
  */
 async function assertCleanWorkingTree(
   repoPath: string,
-  options: { autoStash?: boolean } = {}
-): Promise<void> {
+  options: { autoStash?: boolean; runId?: string } = {}
+): Promise<StashInfo | null> {
   try {
     const statusResult = await git(['status', '--porcelain'], repoPath);
     const dirtyFiles = statusResult.stdout.trim().split('\n').filter(f => f.trim());
 
     if (dirtyFiles.length === 0) {
-      return; // Clean
+      return null; // Clean, no stash needed
     }
 
     // Dirty working tree detected
+    if (options.autoStash) {
+      // Create stash with deterministic message
+      const timestamp = new Date().toISOString();
+      const stashMessage = `runr-autostash-${options.runId || 'unknown'}-${timestamp}`;
+
+      await git(['stash', 'push', '-u', '-m', stashMessage], repoPath);
+
+      // Get stash ref (should be stash@{0} after push)
+      const stashRef = 'stash@{0}';
+
+      console.log(`Auto-stashed ${dirtyFiles.length} uncommitted change${dirtyFiles.length === 1 ? '' : 's'}`);
+      console.log(`  Stash ref: ${stashRef}`);
+      console.log(`  Message: ${stashMessage}`);
+      console.log(`  To restore: git stash pop ${stashRef}`);
+
+      return {
+        stashRef,
+        stashMessage,
+        fileCount: dirtyFiles.length
+      };
+    }
+
+    // Not auto-stashing, refuse with error
     const sampleFiles = dirtyFiles.slice(0, 5).map(f => f.trim());
     const hasMore = dirtyFiles.length > 5;
 
@@ -243,9 +308,7 @@ async function assertCleanWorkingTree(
       errorMessage += `\n... and ${dirtyFiles.length - 5} more`;
     }
     errorMessage += '\n\nRun `git stash && runr resume` to stash changes before resuming.';
-    if (!options.autoStash) {
-      errorMessage += '\nOr use `runr resume --auto-stash` to stash automatically.';
-    }
+    errorMessage += '\nOr use `runr resume --auto-stash` to stash automatically.';
 
     throw new Error(errorMessage);
   } catch (error) {
@@ -253,6 +316,7 @@ async function assertCleanWorkingTree(
       throw error;
     }
     // Git command failed, assume clean
+    return null;
   }
 }
 
@@ -367,7 +431,10 @@ export async function resumeCommand(options: ResumeOptions): Promise<void> {
   }
 
   // INSERTION 1: Dirty tree check (REFUSE policy)
-  await assertCleanWorkingTree(effectiveRepoPath, { autoStash: options.autoStash });
+  const stashInfo = await assertCleanWorkingTree(effectiveRepoPath, {
+    autoStash: options.autoStash,
+    runId: options.runId
+  });
 
   // INSERTION 2: Build and print resume plan
   const plan = await buildResumePlan({
@@ -377,6 +444,11 @@ export async function resumeCommand(options: ResumeOptions): Promise<void> {
     config
   });
   console.log(formatResumePlan(plan));
+
+  // If --plan mode, exit after printing plan
+  if (options.plan) {
+    return;
+  }
 
   // Use shared helper to prepare state for resume
   const updated = prepareForResume(state, { resumeToken: options.runId });
@@ -403,6 +475,19 @@ export async function resumeCommand(options: ResumeOptions): Promise<void> {
       }
     }
   });
+
+  // Record auto-stash if it happened
+  if (stashInfo) {
+    runStore.appendEvent({
+      type: 'auto_stash_created',
+      source: 'cli',
+      payload: {
+        stash_ref: stashInfo.stashRef,
+        stash_message: stashInfo.stashMessage,
+        file_count: stashInfo.fileCount
+      }
+    });
+  }
 
   runStore.appendEvent({
     type: 'run_resumed',

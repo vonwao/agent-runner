@@ -1,0 +1,15 @@
+{
+  "goal": "Test merge conflict detection",
+  "milestones": [
+    {
+      "title": "Milestone 1: Initial work",
+      "task": "Create initial files"
+    }
+  ],
+  "scope": {
+    "allowlist": ["src/**"]
+  },
+  "verification": {
+    "commands": ["bash scripts/verify.sh"]
+  }
+}

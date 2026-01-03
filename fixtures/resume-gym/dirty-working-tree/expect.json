@@ -1,0 +1,18 @@
+{
+  "expect_stop": {
+    "terminal_state": "stopped",
+    "stop_reason": "any"
+  },
+  "expect_resume_refuse": {
+    "exit_code": 1,
+    "stderr_contains": ["Working tree has", "uncommitted change"]
+  },
+  "expect_resume_with_autostash": {
+    "terminal_state": "complete",
+    "timeline_contains": ["auto_stash_created", "resume"]
+  },
+  "expect_invariants": {
+    "stash_ref_printed": true,
+    "stash_message_contains_run_id": true
+  }
+}

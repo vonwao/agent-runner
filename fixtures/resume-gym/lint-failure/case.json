@@ -1,0 +1,14 @@
+{
+  "id": "lint-failure",
+  "order": 20,
+  "description": "Milestone 2 fails lint check; resume continues after user fixes",
+  "run": {
+    "args": ["run", "tasks.json", "--no-watch"]
+  },
+  "resume": {
+    "args": ["resume"]
+  },
+  "env": {
+    "RUNR_VERIFY_MAX_ATTEMPTS": "3"
+  }
+}

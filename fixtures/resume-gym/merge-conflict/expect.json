@@ -1,0 +1,13 @@
+{
+  "expect_stop": {
+    "terminal_state": "stopped",
+    "stop_reason": "any"
+  },
+  "expect_resume_refuse": {
+    "exit_code": 1,
+    "stderr_contains": ["Working tree has", "uncommitted change"]
+  },
+  "expect_invariants": {
+    "no_partial_execution": true
+  }
+}
