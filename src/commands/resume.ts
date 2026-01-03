@@ -8,6 +8,8 @@ import { runSupervisorLoop } from '../supervisor/runner.js';
 import { prepareForResume } from '../supervisor/state-machine.js';
 import { captureFingerprint, compareFingerprints, FingerprintDiff } from '../env/fingerprint.js';
 import { WorktreeInfo, validateWorktree, recreateWorktree, WorktreeRecreateResult } from '../repo/worktree.js';
+import { git } from '../repo/git.js';
+import { getRunsRoot } from '../store/runs-root.js';
 
 export interface ResumeOptions {
   runId: string;
@@ -18,6 +20,7 @@ export interface ResumeOptions {
   force: boolean;
   repo: string;
   autoResume: boolean;
+  autoStash?: boolean;
 }
 
 /**
@@ -62,6 +65,218 @@ function readTaskArtifact(runDir: string): string {
     throw new Error(`Task artifact not found: ${taskPath}`);
   }
   return fs.readFileSync(taskPath, 'utf-8');
+}
+
+/**
+ * Resume plan with checkpoint tracking and deltas.
+ */
+interface ResumePlan {
+  runId: string;
+  checkpointSha: string | null;
+  lastCheckpointMilestoneIndex: number; // -1 if none
+  resumeFromMilestoneIndex: number;     // usually last+1
+  remainingMilestones: number;
+  delta: {
+    diffstat?: string;
+    lockfilesChanged: boolean;
+    ignoredNoiseCount: number;
+    ignoredNoiseSample: string[];
+  };
+}
+
+/**
+ * Extract ignored changes summary from timeline events.
+ */
+function getIgnoredChangesSummary(
+  runId: string,
+  repo: string
+): { count: number; sample: string[] } | null {
+  const runsRoot = getRunsRoot(repo);
+  const timelinePath = path.join(runsRoot, runId, 'timeline.jsonl');
+
+  if (!fs.existsSync(timelinePath)) {
+    return null;
+  }
+
+  try {
+    const lines = fs.readFileSync(timelinePath, 'utf-8').split('\n').filter(l => l.trim());
+    const ignoredEvents = lines
+      .map(line => {
+        try {
+          return JSON.parse(line);
+        } catch {
+          return null;
+        }
+      })
+      .filter(e => e && e.type === 'ignored_changes');
+
+    if (ignoredEvents.length === 0) {
+      return null;
+    }
+
+    const lastEvent = ignoredEvents[ignoredEvents.length - 1];
+    const payload = lastEvent.payload as {
+      ignored_count: number;
+      ignored_sample: string[];
+      ignore_check_status: 'ok' | 'failed';
+    };
+
+    if (payload.ignored_count === 0) {
+      return null;
+    }
+
+    return {
+      count: payload.ignored_count,
+      sample: payload.ignored_sample
+    };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Build resume plan by discovering last checkpoint and computing deltas.
+ */
+async function buildResumePlan(options: {
+  state: RunState;
+  repoPath: string;
+  runStore: RunStore;
+  config: AgentConfig;
+}): Promise<ResumePlan> {
+  const { state, repoPath, runStore, config } = options;
+
+  // Find last checkpoint via git log
+  let checkpointSha: string | null = null;
+  let lastCheckpointMilestoneIndex = -1;
+
+  try {
+    const result = await git(
+      [
+        'log',
+        '-z',
+        '--grep', '^chore\\(agent\\): checkpoint milestone ',
+        '-n', '1',
+        '--pretty=format:%H%x00%s'
+      ],
+      repoPath
+    );
+
+    if (result.stdout.trim()) {
+      const parts = result.stdout.trim().split('\0');
+      checkpointSha = parts[0] || null;
+      const commitMessage = parts[1] || '';
+
+      // Extract milestone index from commit message
+      // Format: "chore(agent): checkpoint milestone <N>"
+      const match = commitMessage.match(/checkpoint milestone (\d+)/);
+      if (match) {
+        lastCheckpointMilestoneIndex = parseInt(match[1], 10);
+      }
+    }
+  } catch {
+    // No checkpoint found, start from beginning
+  }
+
+  const resumeFromMilestoneIndex = lastCheckpointMilestoneIndex + 1;
+  const remainingMilestones = Math.max(0, state.milestones.length - resumeFromMilestoneIndex);
+
+  // Compute delta
+  let diffstat: string | undefined;
+  let lockfilesChanged = false;
+
+  if (checkpointSha) {
+    try {
+      const diffStatResult = await git(['diff', '--stat', `${checkpointSha}..HEAD`], repoPath);
+      diffstat = diffStatResult.stdout.trim() || undefined;
+
+      const diffNamesResult = await git(['diff', '--name-only', `${checkpointSha}..HEAD`], repoPath);
+      const changedFiles = diffNamesResult.stdout.trim().split('\n').filter(f => f);
+      lockfilesChanged = changedFiles.some(f =>
+        f === 'package-lock.json' ||
+        f === 'pnpm-lock.yaml' ||
+        f === 'yarn.lock'
+      );
+    } catch {
+      // Diff failed, skip deltas
+    }
+  }
+
+  const ignoredSummary = getIgnoredChangesSummary(state.run_id, state.repo_path);
+
+  return {
+    runId: state.run_id,
+    checkpointSha,
+    lastCheckpointMilestoneIndex,
+    resumeFromMilestoneIndex,
+    remainingMilestones,
+    delta: {
+      diffstat,
+      lockfilesChanged,
+      ignoredNoiseCount: ignoredSummary?.count ?? 0,
+      ignoredNoiseSample: ignoredSummary?.sample ?? []
+    }
+  };
+}
+
+/**
+ * Assert working tree is clean (REFUSE policy).
+ */
+async function assertCleanWorkingTree(
+  repoPath: string,
+  options: { autoStash?: boolean } = {}
+): Promise<void> {
+  try {
+    const statusResult = await git(['status', '--porcelain'], repoPath);
+    const dirtyFiles = statusResult.stdout.trim().split('\n').filter(f => f.trim());
+
+    if (dirtyFiles.length === 0) {
+      return; // Clean
+    }
+
+    // Dirty working tree detected
+    const sampleFiles = dirtyFiles.slice(0, 5).map(f => f.trim());
+    const hasMore = dirtyFiles.length > 5;
+
+    let errorMessage = `Working tree has ${dirtyFiles.length} uncommitted change${dirtyFiles.length === 1 ? '' : 's'}:\n`;
+    errorMessage += sampleFiles.join('\n');
+    if (hasMore) {
+      errorMessage += `\n... and ${dirtyFiles.length - 5} more`;
+    }
+    errorMessage += '\n\nRun `git stash && runr resume` to stash changes before resuming.';
+    if (!options.autoStash) {
+      errorMessage += '\nOr use `runr resume --auto-stash` to stash automatically.';
+    }
+
+    throw new Error(errorMessage);
+  } catch (error) {
+    if (error instanceof Error && error.message.includes('Working tree has')) {
+      throw error;
+    }
+    // Git command failed, assume clean
+  }
+}
+
+/**
+ * Format resume plan for display.
+ */
+function formatResumePlan(plan: ResumePlan): string {
+  const lines: string[] = [];
+
+  lines.push(`Resume plan:`);
+  lines.push(`  Checkpoint: ${plan.checkpointSha?.slice(0, 8) ?? 'none'} (milestone ${plan.lastCheckpointMilestoneIndex})`);
+  lines.push(`  Resume from: milestone ${plan.resumeFromMilestoneIndex}`);
+  lines.push(`  Remaining: ${plan.remainingMilestones} milestone${plan.remainingMilestones === 1 ? '' : 's'}`);
+
+  if (plan.delta.lockfilesChanged) {
+    lines.push(`  Delta: lockfiles changed`);
+  }
+
+  if (plan.delta.ignoredNoiseCount > 0) {
+    const sample = plan.delta.ignoredNoiseSample.slice(0, 3).join(', ');
+    lines.push(`  Ignored: ${plan.delta.ignoredNoiseCount} files (${sample}${plan.delta.ignoredNoiseSample.length > 3 ? ', ...' : ''})`);
+  }
+
+  return lines.join('\n');
 }
 
 export async function resumeCommand(options: ResumeOptions): Promise<void> {
@@ -151,10 +366,44 @@ export async function resumeCommand(options: ResumeOptions): Promise<void> {
     }
   }
 
+  // INSERTION 1: Dirty tree check (REFUSE policy)
+  await assertCleanWorkingTree(effectiveRepoPath, { autoStash: options.autoStash });
+
+  // INSERTION 2: Build and print resume plan
+  const plan = await buildResumePlan({
+    state,
+    repoPath: effectiveRepoPath,
+    runStore,
+    config
+  });
+  console.log(formatResumePlan(plan));
+
   // Use shared helper to prepare state for resume
   const updated = prepareForResume(state, { resumeToken: options.runId });
 
+  // Override milestone_index and phase from plan (fixes FINALIZE bug)
+  updated.milestone_index = plan.resumeFromMilestoneIndex;
+  updated.phase = plan.resumeFromMilestoneIndex >= state.milestones.length ? 'FINALIZE' : 'IMPLEMENT';
+
   runStore.writeState(updated);
+
+  // INSERTION 3: Resume provenance event
+  runStore.appendEvent({
+    type: 'resume',
+    source: 'cli',
+    payload: {
+      checkpoint_sha: plan.checkpointSha,
+      last_checkpoint_milestone_index: plan.lastCheckpointMilestoneIndex,
+      resume_from_milestone_index: plan.resumeFromMilestoneIndex,
+      remaining_milestones: plan.remainingMilestones,
+      delta: {
+        lockfiles_changed: plan.delta.lockfilesChanged,
+        ignored_noise_count: plan.delta.ignoredNoiseCount,
+        ignored_noise_sample: plan.delta.ignoredNoiseSample
+      }
+    }
+  });
+
   runStore.appendEvent({
     type: 'run_resumed',
     source: 'cli',

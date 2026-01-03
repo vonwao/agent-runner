@@ -124,6 +124,7 @@ program
   .option('--config <path>', 'Path to runr.config.json (or agent.config.json)')
   .option('--force', 'Resume despite env fingerprint mismatch', false)
   .option('--auto-resume', 'Continue auto-resuming on transient failures', false)
+  .option('--auto-stash', 'Automatically stash uncommitted changes before resume', false)
   .action(async (runId: string, options) => {
     await resumeCommand({
       runId,
@@ -133,7 +134,8 @@ program
       allowDeps: options.allowDeps,
       config: options.config,
       force: options.force,
-      autoResume: options.autoResume
+      autoResume: options.autoResume,
+      autoStash: options.autoStash
     });
   });
 
