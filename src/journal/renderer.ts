@@ -208,6 +208,28 @@ function renderChanges(journal: JournalJson): string {
     lines.push('```');
   }
 
+  // Render ignored changes (tool pollution)
+  if (journal.changes.ignored_changes) {
+    const { count, sample, ignore_check_status } = journal.changes.ignored_changes;
+
+    if (ignore_check_status === 'failed') {
+      lines.push('\n> **Warning:** Git ignore-check failed; guard ran in strict mode.');
+    }
+
+    if (count > 0) {
+      lines.push(`\n**Ignored Tool Noise:** ${count} file${count === 1 ? '' : 's'} (filtered from guard checks)`);
+      if (sample.length > 0) {
+        lines.push('\nSample (first 20):');
+        for (const file of sample.slice(0, 20)) {
+          lines.push(`- \`${file}\``);
+        }
+        if (count > sample.length) {
+          lines.push(`\n_...and ${count - sample.length} more_`);
+        }
+      }
+    }
+  }
+
   return lines.join('\n');
 }
 

@@ -1113,6 +1113,18 @@ async function handleImplement(state: RunState, options: SupervisorOptions): Pro
   }
 
   const changedFiles = await listChangedFiles(options.repoPath);
+
+  // Record ignored files for forensics (journal)
+  const { getIgnoredChangesSummary } = await import('../repo/context.js');
+  const ignoredSummary = await getIgnoredChangesSummary(options.repoPath);
+  if (ignoredSummary.ignored_count > 0 || ignoredSummary.ignore_check_status === 'failed') {
+    options.runStore.appendEvent({
+      type: 'ignored_changes',
+      source: 'supervisor',
+      payload: ignoredSummary
+    });
+  }
+
   const scopeCheck = checkScope(
     changedFiles,
     state.scope_lock.allowlist,

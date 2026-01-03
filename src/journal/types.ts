@@ -81,6 +81,11 @@ export interface JournalJson {
       deletions: number;
     }> | null;
     diff_stat: string | null;
+    ignored_changes: {
+      count: number;
+      sample: string[]; // Capped at 20
+      ignore_check_status: 'ok' | 'failed';
+    } | null;
   };
 
   // Next Action

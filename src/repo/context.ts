@@ -31,58 +31,186 @@ export async function getCurrentBranch(repoPath: string): Promise<string> {
 }
 
 export async function listChangedFiles(gitRoot: string): Promise<string[]> {
-  const result = await git(['status', '--porcelain'], gitRoot);
-  const lines = result.stdout.split('\n').filter((line) => line.trim().length > 0);
-  if (lines.length === 0) {
+  // Use -z for NUL delimiter (fixes newlines in filenames)
+  const result = await git(['status', '--porcelain', '-z'], gitRoot);
+
+  if (!result.stdout || result.stdout.length === 0) {
     return [];
   }
 
+  // Parse NUL-delimited entries
+  // For renames, git outputs: "R  old_name\0new_name\0"
+  // So after split, we get: ["R  old_name", "new_name", ...]
+  const entries = result.stdout.split('\0').filter((entry) => entry.length > 0);
   const files: string[] = [];
-  for (const line of lines) {
-    const entry = line.slice(3);
-    const arrow = entry.indexOf('->');
-    if (arrow !== -1) {
-      // Rename: include BOTH old and new paths for ownership/scope enforcement
-      // Old path was touched (deleted from), new path was touched (created at)
-      const oldPath = entry.slice(0, arrow).trim();
-      const newPath = entry.slice(arrow + 2).trim();
-      if (oldPath) files.push(oldPath);
-      if (newPath) files.push(newPath);
+
+  for (let i = 0; i < entries.length; i++) {
+    const entry = entries[i];
+
+    // Entry format: "XY filename" where XY is 2-char status code
+    // Check if this looks like a status entry (has at least 3 chars and space at position 2)
+    if (entry.length >= 3 && entry[2] === ' ') {
+      const statusCode = entry.slice(0, 2);
+      const filePath = entry.slice(3);
+
+      // Check if this is a rename (R) or copy (C)
+      if (statusCode[0] === 'R' || statusCode[1] === 'R' ||
+          statusCode[0] === 'C' || statusCode[1] === 'C') {
+        // For renames/copies, next entry is the new filename
+        if (filePath) files.push(filePath); // old name
+        if (i + 1 < entries.length) {
+          files.push(entries[i + 1]); // new name
+          i++; // Skip next entry since we consumed it
+        }
+      } else {
+        // Regular file
+        if (filePath) files.push(filePath);
+      }
     } else {
-      const filePath = entry.trim();
-      if (filePath) files.push(filePath);
+      // Entry without status code (shouldn't happen except in rename case handled above)
+      // Skip it to avoid corruption
     }
   }
 
-  // Deduplicate: renames or multiple status entries can reference same path
+  // Deduplicate
   const uniqueFiles = [...new Set(files)];
 
-  // Filter out gitignored files to prevent tool pollution from triggering guard violations
-  // This prevents .tmp/, .cache/, build outputs, etc. from stopping runs
   if (uniqueFiles.length === 0) {
     return [];
   }
 
+  // Filter out gitignored files using NUL delimiter
+  return filterIgnoredFiles(gitRoot, uniqueFiles);
+}
+
+/**
+ * Summary of ignored changed files (for forensics/journal)
+ */
+export interface IgnoredChangesSummary {
+  ignored_count: number;
+  ignored_sample: string[]; // Capped at 20 entries
+  ignore_check_status: 'ok' | 'failed';
+}
+
+/**
+ * Get summary of ignored changed files.
+ * Call this when you need forensics (journal, guard violations).
+ * Cheaper than filtering if you only need counts.
+ *
+ * @param gitRoot - Git repository root
+ * @returns Summary with counts and sample
+ */
+export async function getIgnoredChangesSummary(gitRoot: string): Promise<IgnoredChangesSummary> {
+  // Use same parsing as listChangedFiles()
+  const result = await git(['status', '--porcelain', '-z'], gitRoot);
+
+  if (!result.stdout || result.stdout.length === 0) {
+    return {
+      ignored_count: 0,
+      ignored_sample: [],
+      ignore_check_status: 'ok'
+    };
+  }
+
+  // Parse all changed files (same logic as listChangedFiles)
+  const entries = result.stdout.split('\0').filter((entry) => entry.length > 0);
+  const files: string[] = [];
+
+  for (let i = 0; i < entries.length; i++) {
+    const entry = entries[i];
+
+    if (entry.length >= 3 && entry[2] === ' ') {
+      const statusCode = entry.slice(0, 2);
+      const filePath = entry.slice(3);
+
+      // Handle renames/copies
+      if (statusCode[0] === 'R' || statusCode[1] === 'R' ||
+          statusCode[0] === 'C' || statusCode[1] === 'C') {
+        if (filePath) files.push(filePath);
+        if (i + 1 < entries.length) {
+          files.push(entries[i + 1]);
+          i++;
+        }
+      } else {
+        if (filePath) files.push(filePath);
+      }
+    }
+  }
+
+  const uniqueFiles = [...new Set(files)];
+
+  if (uniqueFiles.length === 0) {
+    return {
+      ignored_count: 0,
+      ignored_sample: [],
+      ignore_check_status: 'ok'
+    };
+  }
+
+  // Check which files are ignored
   try {
     const { execa } = await import('execa');
-    const checkIgnoreResult = await execa('git', ['check-ignore', '--stdin'], {
+
+    const checkIgnoreResult = await execa('git', ['check-ignore', '-z', '--stdin'], {
       cwd: gitRoot,
-      input: uniqueFiles.join('\n'),
+      input: uniqueFiles.join('\0'),
+      reject: false
+    });
+
+    const ignoredFiles = checkIgnoreResult.stdout
+      .split('\0')
+      .filter(line => line.length > 0);
+
+    // Cap sample at 20 entries
+    const sample = ignoredFiles.slice(0, 20);
+
+    return {
+      ignored_count: ignoredFiles.length,
+      ignored_sample: sample,
+      ignore_check_status: 'ok'
+    };
+  } catch (err) {
+    // check-ignore failed
+    return {
+      ignored_count: 0,
+      ignored_sample: [],
+      ignore_check_status: 'failed'
+    };
+  }
+}
+
+/**
+ * Filter out gitignored files from a list of paths.
+ * Uses git check-ignore with NUL delimiters for correctness.
+ *
+ * @param gitRoot - Git repository root
+ * @param files - List of file paths to check
+ * @returns Filtered list with ignored files removed
+ */
+async function filterIgnoredFiles(gitRoot: string, files: string[]): Promise<string[]> {
+  try {
+    const { execa } = await import('execa');
+
+    // Use -z for NUL delimiter (handles filenames with newlines)
+    const checkIgnoreResult = await execa('git', ['check-ignore', '-z', '--stdin'], {
+      cwd: gitRoot,
+      input: files.join('\0'),
       reject: false  // Don't throw on exit code 1 (no files ignored)
     });
 
-    // git check-ignore outputs one line per ignored file (only ignored files)
+    // Parse NUL-delimited output
     const ignoredFiles = new Set(
       checkIgnoreResult.stdout
-        .split('\n')
-        .filter(line => line.trim().length > 0)
+        .split('\0')
+        .filter(line => line.length > 0)
     );
 
     // Return only files that are NOT ignored
-    return uniqueFiles.filter(file => !ignoredFiles.has(file));
+    return files.filter(file => !ignoredFiles.has(file));
   } catch (err) {
-    // If check-ignore fails, return all files (safer to be strict)
-    return uniqueFiles;
+    // Fail-safe: if check-ignore fails, return all files (strict mode)
+    // Caller should log warning about this
+    return files;
   }
 }
 

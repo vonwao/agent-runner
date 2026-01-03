@@ -403,7 +403,8 @@ async function extractChanges(
       insertions: null,
       deletions: null,
       top_files: null,
-      diff_stat: null
+      diff_stat: null,
+      ignored_changes: null
     };
   }
 
@@ -447,6 +448,9 @@ async function extractChanges(
       encoding: 'utf-8'
     });
 
+    // Extract ignored changes from timeline
+    const ignoredChanges = await extractIgnoredChanges(runDir, warnings);
+
     return {
       base_sha,
       head_sha,
@@ -454,7 +458,8 @@ async function extractChanges(
       insertions: totalInsertions,
       deletions: totalDeletions,
       top_files: topFiles.length > 0 ? topFiles : null,
-      diff_stat: diffStat.trim()
+      diff_stat: diffStat.trim(),
+      ignored_changes: ignoredChanges
     };
   } catch (err) {
     warnings.push(`Git diff failed: ${(err as Error).message}. Changes unavailable.`);
@@ -465,8 +470,48 @@ async function extractChanges(
       insertions: null,
       deletions: null,
       top_files: null,
-      diff_stat: null
+      diff_stat: null,
+      ignored_changes: null
     };
+  }
+}
+
+/**
+ * Extract ignored changes summary from timeline events
+ */
+async function extractIgnoredChanges(
+  runDir: string,
+  warnings: string[]
+): Promise<JournalJson['changes']['ignored_changes']> {
+  try {
+    const timelinePath = path.join(runDir, 'timeline.jsonl');
+    if (!fs.existsSync(timelinePath)) {
+      return null;
+    }
+
+    const events = await readTimelineEvents(timelinePath);
+    const ignoredEvents = events.filter(e => e.type === 'ignored_changes');
+
+    if (ignoredEvents.length === 0) {
+      return null;
+    }
+
+    // Take the last ignored_changes event (most recent)
+    const lastEvent = ignoredEvents[ignoredEvents.length - 1];
+    const payload = lastEvent.payload as {
+      ignored_count: number;
+      ignored_sample: string[];
+      ignore_check_status: 'ok' | 'failed';
+    };
+
+    return {
+      count: payload.ignored_count,
+      sample: payload.ignored_sample,
+      ignore_check_status: payload.ignore_check_status
+    };
+  } catch (err) {
+    warnings.push(`Failed to extract ignored changes: ${(err as Error).message}`);
+    return null;
   }
 }
 
