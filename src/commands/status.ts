@@ -1,5 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import readline from 'node:readline';
 import { RunStore, WorkerCallInfo } from '../store/run-store.js';
 import { getRunsRoot } from '../store/runs-root.js';
 import { RunState } from '../types/schemas.js';
@@ -28,12 +29,72 @@ interface RunSummary {
 }
 
 /**
+ * Extract ignored changes summary from timeline events.
+ * Returns null if no ignored changes found.
+ */
+function getIgnoredChangesSummary(
+  runId: string,
+  repo: string
+): { count: number; sample: string[] } | null {
+  const runsRoot = getRunsRoot(repo);
+  const timelinePath = path.join(runsRoot, runId, 'timeline.jsonl');
+
+  if (!fs.existsSync(timelinePath)) {
+    return null;
+  }
+
+  try {
+    const lines = fs.readFileSync(timelinePath, 'utf-8').split('\n').filter(l => l.trim());
+    const ignoredEvents = lines
+      .map(line => {
+        try {
+          return JSON.parse(line);
+        } catch {
+          return null;
+        }
+      })
+      .filter(e => e && e.type === 'ignored_changes');
+
+    if (ignoredEvents.length === 0) {
+      return null;
+    }
+
+    // Take the last ignored_changes event (most recent)
+    const lastEvent = ignoredEvents[ignoredEvents.length - 1];
+    const payload = lastEvent.payload as {
+      ignored_count: number;
+      ignored_sample: string[];
+      ignore_check_status: 'ok' | 'failed';
+    };
+
+    if (payload.ignored_count === 0) {
+      return null;
+    }
+
+    return {
+      count: payload.ignored_count,
+      sample: payload.ignored_sample
+    };
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Get status of a single run.
  */
 export async function statusCommand(options: StatusOptions): Promise<void> {
   const runStore = RunStore.init(options.runId, options.repo);
   const state = runStore.readState();
   console.log(JSON.stringify(state, null, 2));
+
+  // Show ignored tool noise summary for trust/forensics
+  const ignoredSummary = getIgnoredChangesSummary(options.runId, options.repo);
+  if (ignoredSummary) {
+    const { count, sample } = ignoredSummary;
+    const samplePaths = sample.slice(0, 3).join(', ');
+    console.log(`\nIgnored tool noise: ${count} file${count === 1 ? '' : 's'} (sample: ${samplePaths}${sample.length > 3 ? ', ...' : ''})`);
+  }
 }
 
 /**
