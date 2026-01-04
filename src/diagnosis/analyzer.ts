@@ -37,6 +37,8 @@ function categoryToFamily(category: DiagnosisCategory): StopReasonFamily {
       return 'guard';
     case 'verification_failure':
       return 'verification';
+    case 'review_loop_detected':
+      return 'review';
     case 'worker_parse_failure':
       return 'worker';
     case 'stall_timeout':
@@ -96,7 +98,8 @@ export function diagnoseStop(context: DiagnosisContext): StopDiagnosisJson {
     diagnoseStallTimeout(context),
     diagnoseMaxTicksReached(context),
     diagnoseTimeBudgetExceeded(context),
-    diagnoseGuardViolationDirty(context)
+    diagnoseGuardViolationDirty(context),
+    diagnoseReviewLoopDetected(context)
   ].filter((r) => r.confidence > 0);
 
   // Sort by confidence descending
@@ -755,6 +758,95 @@ function diagnoseGuardViolationDirty(ctx: DiagnosisContext): DiagnosisResult {
               title: 'Stash and retry with worktree',
               command: `git stash -u && node dist/cli.js resume ${ctx.runId} --worktree`,
               why: 'Isolates agent work from your changes'
+            }
+          ]
+        : []
+  };
+}
+
+/**
+ * Rule 11: Review loop detected
+ */
+function diagnoseReviewLoopDetected(ctx: DiagnosisContext): DiagnosisResult {
+  const signals: DiagnosisSignal[] = [];
+  let confidence = 0;
+  let pattern = 'unknown';
+  let reviewRounds = 0;
+  let maxReviewRounds = 2;
+  let milestoneIndex = ctx.state.milestone_index;
+  let requestedChanges: string[] = [];
+
+  // Check stop reason or find event
+  if (ctx.state.stop_reason === 'review_loop_detected') {
+    confidence = 0.9;
+
+    // Find the review_loop_detected event for details
+    const event = ctx.events.find((e) => e.type === 'review_loop_detected');
+    if (event?.payload) {
+      const payload = event.payload as Record<string, unknown>;
+      const sameFingerprint = payload.same_fingerprint as boolean;
+      reviewRounds = (payload.review_rounds as number) ?? 0;
+      maxReviewRounds = (payload.max_review_rounds as number) ?? 2;
+      milestoneIndex = (payload.milestone_index as number) ?? ctx.state.milestone_index;
+      const lastChanges = payload.last_changes as string[] | undefined;
+
+      pattern = sameFingerprint ? 'identical_review_feedback' : 'max_review_rounds_exceeded';
+
+      if (lastChanges && lastChanges.length > 0) {
+        requestedChanges = lastChanges.slice(0, 2);
+      }
+
+      signals.push({
+        source: 'event.review_loop_detected',
+        pattern,
+        snippet: `Milestone ${milestoneIndex + 1}, ${reviewRounds} rounds (max: ${maxReviewRounds}), changes: ${requestedChanges.join('; ')}`
+      });
+    } else {
+      // Event not found but stop_reason matches
+      signals.push({
+        source: 'state.stop_reason',
+        pattern: 'review_loop_detected',
+        snippet: ctx.state.last_error?.slice(0, 200) || 'Review loop detected'
+      });
+      confidence = 0.7;
+    }
+  }
+
+  return {
+    category: 'review_loop_detected',
+    confidence,
+    signals,
+    nextActions:
+      confidence > 0
+        ? [
+            {
+              title: 'Open run artifacts',
+              command: `node dist/cli.js open ${ctx.runId}`,
+              why: 'View all run artifacts including review digest and timeline'
+            },
+            {
+              title: 'Read review digest',
+              command: `cat ${ctx.runDir}/review_digest.md`,
+              why: 'See exact requested changes and review verdict'
+            },
+            {
+              title: 'View run journal',
+              command: `node dist/cli.js journal ${ctx.runId}`,
+              why: 'Understand what the agent did across review rounds'
+            },
+            {
+              title: 'Rewrite milestone acceptance criteria',
+              why: 'Make criteria explicit as 3-7 checkboxes with concrete file paths and testable conditions. Loops usually mean the agent cannot translate review feedback into deterministic work.'
+            },
+            {
+              title: 'Check resume plan',
+              command: `node dist/cli.js resume ${ctx.runId} --plan`,
+              why: 'Preview what resume will do before running it'
+            },
+            {
+              title: 'Run diagnostics',
+              command: `node dist/cli.js doctor`,
+              why: 'Verify environment and repository health'
             }
           ]
         : []

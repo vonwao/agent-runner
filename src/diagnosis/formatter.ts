@@ -19,6 +19,7 @@ const categoryDescriptions: Record<DiagnosisCategory, string> = {
   time_budget_exceeded: 'Ran out of allocated time.',
   guard_violation_dirty: 'Working directory has uncommitted changes.',
   ownership_violation: 'Task modified files outside its declared owns: paths.',
+  review_loop_detected: 'Review feedback repeated or max review rounds exceeded.',
   unknown: 'Could not determine specific cause.'
 };
 
@@ -145,6 +146,8 @@ function getEscalationAdvice(category: DiagnosisCategory): string {
       return 'For complex tasks, allocate more time upfront: --time 120 or higher.';
     case 'guard_violation_dirty':
       return 'Always use --worktree for runs on repos with active development.';
+    case 'review_loop_detected':
+      return 'If feedback loops persist, split the milestone into smaller steps or add explicit acceptance criteria as checkboxes. Consider adjusting verification commands to catch issues earlier.';
     default:
       return 'Review the timeline and logs carefully. Open an issue if the problem persists.';
   }

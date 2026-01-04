@@ -12,6 +12,7 @@ export type StopReasonFamily =
   | 'guard'       // scope_violation, lockfile, dirty worktree, cwd mismatch
   | 'budget'      // max_ticks, time_budget
   | 'verification'// test/lint/typecheck failures
+  | 'review'      // review loop, identical feedback, max rounds exceeded
   | 'worker'      // parse failures, fallbacks
   | 'stall'       // no progress detected
   | 'auth'        // authentication issues
@@ -34,6 +35,7 @@ export type DiagnosisCategory =
   | 'time_budget_exceeded'
   | 'guard_violation_dirty'
   | 'ownership_violation'
+  | 'review_loop_detected'
   | 'unknown';
 
 /**
