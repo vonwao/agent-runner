@@ -1,17 +1,17 @@
-# Agent Framework Documentation
+# Runr Documentation
 
 ## Canonical Conventions
 
 | Aspect | Convention |
 |--------|------------|
 | **CLI** | `runr` (install via npm, see [Quickstart](quickstart.md)) |
-| **Config** | `.agent/agent.config.json` |
-| **Tasks** | `.agent/tasks/*.md` |
-| **Runs** | `.agent/runs/<run_id>/` |
-| **Worktrees** | `.agent-worktrees/<run_id>/` (outside `.agent/` to avoid denylist conflicts) |
-| **Orchestrations** | `.agent/orchestrations/<orch_id>/` |
+| **Config** | `.runr/runr.config.json` |
+| **Tasks** | `.runr/tasks/*.md` |
+| **Runs** | `.runr/runs/<run_id>/` |
+| **Worktrees** | `.runr-worktrees/<run_id>/` (outside `.runr/` to avoid denylist conflicts) |
+| **Orchestrations** | `.runr/orchestrations/<orch_id>/` |
 
-> Some legacy docs may reference `agent.config.json` at repo root or `runs/` at repo root. The canonical public interface is `.agent/...`.
+> **Note**: Legacy `.agent/` paths are still supported with deprecation warnings. The canonical public interface is `.runr/...`.
 
 ---
 
@@ -29,6 +29,8 @@
 - [Guards and Scope](guards-and-scope.md) - Allowlist, denylist, presets
 - [Verification](verification.md) - Tier0/1/2 test selection
 - [Configuration](configuration.md) - Full config schema
+- [Workflow Guide](workflow-guide.md) - Bundle, submit, and integration workflows
+- [Packs User Guide](packs-user-guide.md) - Workflow packs (solo/trunk)
 
 ## Architecture
 
@@ -65,7 +67,9 @@
 
 ## Reading Paths
 
-**New user**: Quickstart → Run Lifecycle → Configuration
+**New user**: Quickstart → Workflow Guide → Run Lifecycle → Configuration
+
+**Understanding workflow**: Packs User Guide → Workflow Guide → Configuration
 
 **Understanding safety**: Guards and Scope → Verification → Worktrees
 

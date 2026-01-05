@@ -35,28 +35,35 @@ npm link
 
 ## Configure Your Project
 
-Create `.runr/runr.config.json` in your project root:
+Initialize Runr with a workflow pack (recommended):
 
-```json
-{
-  "agent": { "name": "my-project", "version": "1" },
-  "scope": {
-    "allowlist": ["src/**"],
-    "denylist": ["node_modules/**"],
-    "presets": ["typescript", "vitest"]
-  },
-  "verification": {
-    "tier0": ["npm run typecheck", "npm run lint"],
-    "tier1": ["npm run build"],
-    "tier2": ["npm test"]
-  },
-  "phases": {
-    "plan": "claude",
-    "implement": "claude",
-    "review": "claude"
-  }
-}
+```bash
+cd your-project
+
+# Choose a workflow:
+# - solo: Development branch workflow (dev → main)
+# - trunk: Trunk-based development (main only)
+
+runr init --pack solo
 ```
+
+This creates:
+- `.runr/runr.config.json` - Auto-detected verification commands + workflow config
+- `.runr/tasks/example-task.md` - Starter task template
+- `AGENTS.md` - Agent guidelines for this project
+- `CLAUDE.md` - Claude Code integration guide
+
+**Preview without writing:**
+```bash
+runr init --pack solo --dry-run
+```
+
+**Manual configuration** (without pack):
+```bash
+runr init  # Interactive setup, auto-detects verification
+```
+
+See [Packs User Guide](packs-user-guide.md) for details on workflow packs.
 
 ## Create a Task
 
@@ -77,30 +84,53 @@ Add a GET /api/health endpoint that returns { status: "ok" }.
 - TypeScript types are correct
 ```
 
-## Run
+## Run Your First Task
 
 ```bash
 # Check environment
 runr doctor
 
 # Execute task (uses worktree isolation)
-runr run --task .runr/tasks/my-first-task.md --time 10
+runr run --task .runr/tasks/my-first-task.md --worktree
 
-# Monitor progress
+# Monitor progress in another terminal
 runr follow <run_id>
 
 # View results
 runr report <run_id>
 ```
 
+## Submit Verified Changes
+
+After a successful run, integrate the checkpoint:
+
+```bash
+# Generate evidence bundle
+runr bundle <run_id>
+
+# Preview submit (no changes)
+runr submit <run_id> --to main --dry-run
+
+# Execute submit (cherry-pick checkpoint to main)
+runr submit <run_id> --to main
+
+# Push to remote
+git push origin main
+```
+
+See [Workflow Guide](workflow-guide.md) for complete bundle→submit workflow.
+
 ## Key Commands
 
 | Command | Purpose |
 |---------|---------|
+| `runr init --pack <name>` | Initialize with workflow pack (solo/trunk) |
 | `runr doctor` | Verify environment and worker CLIs |
 | `runr run --task <file>` | Execute a task |
 | `runr follow <run_id>` | Tail run progress in real-time |
 | `runr report <run_id>` | Generate run report |
+| `runr bundle <run_id>` | Generate evidence bundle |
+| `runr submit <run_id> --to <branch>` | Submit verified checkpoint to branch |
 | `runr resume <run_id>` | Resume a stopped run |
 | `runr status` | Show current run status |
 
@@ -136,6 +166,8 @@ All runr files live under `.runr/` in your project:
 
 ## Next Steps
 
+- [Workflow Guide](workflow-guide.md) - Complete bundle/submit workflow
+- [Packs User Guide](packs-user-guide.md) - Choosing and using workflow packs
 - [Configuration Reference](configuration.md) - Full config schema
 - [Run Lifecycle](run-lifecycle.md) - How phases work
 - [Guards and Scope](guards-and-scope.md) - Safety constraints

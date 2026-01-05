@@ -1,8 +1,8 @@
 # Tutorial
 
-*Hands-on exercises to learn Agent Framework. Takes about 30 minutes.*
+*Hands-on exercises to learn Runr. Takes about 30 minutes.*
 
-> **Prerequisites**: Complete the [Quickstart](quickstart.md) first. You should have `agent doctor` passing.
+> **Prerequisites**: Complete the [Quickstart](quickstart.md) first. You should have `runr doctor` passing.
 
 ---
 
@@ -13,16 +13,16 @@ Let's start with a trivial task to see the full lifecycle.
 ### Step 1: Create a test project
 
 ```bash
-mkdir ~/agent-tutorial
-cd ~/agent-tutorial
+mkdir ~/runr-tutorial
+cd ~/runr-tutorial
 git init
 npm init -y
-mkdir -p src .agent/tasks
+mkdir -p src .runr/tasks
 ```
 
 ### Step 2: Create a minimal config
 
-Create `.agent/agent.config.json`:
+Create `.runr/runr.config.json`:
 
 ```json
 {
@@ -43,7 +43,7 @@ Create `.agent/agent.config.json`:
 
 ### Step 3: Create a simple task
 
-Create `.agent/tasks/hello.md`:
+Create `.runr/tasks/hello.md`:
 
 ```markdown
 # Add a greeting module
@@ -62,7 +62,7 @@ Create `src/greet.js` that exports a function `greet(name)` which returns "Hello
 ### Step 4: Run it
 
 ```bash
-agent run --task .agent/tasks/hello.md --time 5
+runr run --task .runr/tasks/hello.md --time 5
 ```
 
 ### Step 5: Watch what happens
@@ -70,7 +70,7 @@ agent run --task .agent/tasks/hello.md --time 5
 In another terminal:
 
 ```bash
-agent follow latest
+runr follow latest
 ```
 
 You'll see:
@@ -84,7 +84,7 @@ You'll see:
 
 ```bash
 # See the report
-agent report latest
+runr report latest
 
 # Look at what was created
 cat src/greet.js
@@ -101,7 +101,7 @@ Let's intentionally cause a failure to see how the agent handles it.
 
 ### Step 1: Add real verification
 
-Update `.agent/agent.config.json`:
+Update `.runr/runr.config.json`:
 
 ```json
 {
@@ -122,7 +122,7 @@ Update `.agent/agent.config.json`:
 
 ### Step 2: Create a task that will struggle
 
-Create `.agent/tasks/add-test.md`:
+Create `.runr/tasks/add-test.md`:
 
 ```markdown
 # Add a self-test to greet.js
@@ -142,7 +142,7 @@ When you run `node src/greet.js`, it should:
 ### Step 3: Run and observe
 
 ```bash
-agent run --task .agent/tasks/add-test.md --time 5
+runr run --task .runr/tasks/add-test.md --time 5
 ```
 
 Watch the run. You might see:
@@ -153,10 +153,10 @@ Watch the run. You might see:
 ### Step 4: If it stopped, check why
 
 ```bash
-agent report latest
+runr report latest
 
 # Read the stop memo
-cat .agent/runs/*/handoffs/stop.md
+cat .runr/runs/*/handoffs/stop.md
 ```
 
 The stop memo tells you exactly what went wrong and what to try next.
@@ -176,7 +176,7 @@ git commit -m "checkpoint before worktree test"
 
 ### Step 2: Run with --worktree
 
-Create `.agent/tasks/add-export.md`:
+Create `.runr/tasks/add-export.md`:
 
 ```markdown
 # Add named export
@@ -187,7 +187,7 @@ Add a named export `farewell(name)` to `src/greet.js` that returns "Goodbye, {na
 Run with worktree:
 
 ```bash
-agent run --task .agent/tasks/add-export.md --worktree --time 5
+runr run --task .runr/tasks/add-export.md --worktree --time 5
 ```
 
 ### Step 3: Notice the difference
@@ -233,7 +233,7 @@ git add config && git commit -m "add config"
 
 ### Step 2: Update config to forbid it
 
-Update `.agent/agent.config.json`:
+Update `.runr/runr.config.json`:
 
 ```json
 {
@@ -255,7 +255,7 @@ Update `.agent/agent.config.json`:
 
 ### Step 3: Try to break the rules
 
-Create `.agent/tasks/bad-task.md`:
+Create `.runr/tasks/bad-task.md`:
 
 ```markdown
 # Update configuration
@@ -266,7 +266,7 @@ Add a new secret to `config/secrets.txt`.
 Run it:
 
 ```bash
-agent run --task .agent/tasks/bad-task.md --time 5
+runr run --task .runr/tasks/bad-task.md --time 5
 ```
 
 ### Step 4: Watch it get blocked
@@ -274,7 +274,7 @@ agent run --task .agent/tasks/bad-task.md --time 5
 The run will stop with `plan_scope_violation` because the planner proposed modifying `config/secrets.txt`, which is in the denylist.
 
 ```bash
-agent report latest
+runr report latest
 ```
 
 This is the scope guard protecting you.
@@ -285,7 +285,7 @@ This is the scope guard protecting you.
 
 ### Step 1: Create a task that will time out
 
-Create `.agent/tasks/slow-task.md`:
+Create `.runr/tasks/slow-task.md`:
 
 ```markdown
 # Add comprehensive documentation
@@ -301,7 +301,7 @@ Create a README.md with:
 ### Step 2: Run with a very short time limit
 
 ```bash
-agent run --task .agent/tasks/slow-task.md --time 1 --worktree
+runr run --task .runr/tasks/slow-task.md --time 1 --worktree
 ```
 
 It will likely stop with `time_budget_exceeded`.
@@ -364,7 +364,7 @@ Make sure Claude CLI is installed and authenticated.
 ### Run seems stuck
 
 ```bash
-agent follow <run_id>
+runr follow <run_id>
 ```
 
 Check if it's waiting for a worker response. Workers can take a few minutes.
@@ -373,7 +373,7 @@ Check if it's waiting for a worker response. Workers can take a few minutes.
 
 ```bash
 # Delete a run's artifacts
-rm -rf .agent/runs/<run_id>
+rm -rf .runr/runs/<run_id>
 
 # Delete the worktree (if used)
 rm -rf .agent-worktrees/<run_id>
