@@ -103,18 +103,18 @@ npm install -g @weldr/runr
 
 # Initialize in your project
 cd /your/project
-runr init
+runr init --pack solo
 
 # Run a task
 runr run --task .runr/tasks/example-feature.md --worktree
 
-# If it fails, resume from last checkpoint
-runr resume <run_id>
-
-# Get machine-readable diagnostics
-runr summarize <run_id>
-# Output: .runr/runs/<run_id>/handoffs/stop.json
+# Submit verified checkpoint
+runr bundle <run_id>
+runr submit <run_id> --to dev
+git push origin dev
 ```
+
+**See [Solo Workflow Example](docs/examples/solo-workflow.md) for complete copy-paste reference.**
 
 > Prefer source install? See [Development](#development).
 

@@ -48,6 +48,7 @@
 
 ## Guides
 
+- **[Solo Workflow Example](examples/solo-workflow.md)** - Canonical copy-paste reference
 - [Target Repo Setup](TARGET_REPO_SETUP.md) - Using in your project
 - [Pilot Program](PILOT_PROGRAM.md) - Early adopter guide
 
@@ -67,9 +68,9 @@
 
 ## Reading Paths
 
-**New user**: Quickstart → Workflow Guide → Run Lifecycle → Configuration
+**New user**: Quickstart → Solo Workflow Example → Run Lifecycle
 
-**Understanding workflow**: Packs User Guide → Workflow Guide → Configuration
+**Understanding workflow**: Solo Workflow Example → Workflow Guide → Packs User Guide
 
 **Understanding safety**: Guards and Scope → Verification → Worktrees
 
