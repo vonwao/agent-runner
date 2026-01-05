@@ -28,6 +28,18 @@ Exceptions:
 
 ## Decisions Locked (Do Not Change)
 
+### Implementation Constraints (Critical)
+
+**Must follow exactly:**
+- Use `execa` only for git commands (already in project)
+- Bundle must be deterministic across machines:
+  - NO absolute file paths in output
+  - Sort timeline events alphabetically by type
+  - Sort conflicted files alphabetically
+- Submit must restore starting branch after operation
+- Conflict files via: `git diff --name-only --diff-filter=U`
+- Timeline events written to: `.runr/runs/<run_id>/timeline.jsonl` (using runStore)
+
 ### Config Schema (5 fields only)
 
 ```typescript
@@ -177,13 +189,12 @@ npm run typecheck
 - `src/commands/bundle.ts` - Main command implementation
 - `tests/commands/bundle.test.ts` - Unit tests
 
-**Bundle Output Format (Fixed):**
+**Bundle Output Format (Fixed, Deterministic):**
 
 ```markdown
 # Run <run_id>
 
 **Created:** <state.started_at>
-**Repo:** <state.repo_path>
 **Checkpoint:** <checkpoint_sha or "none">
 **Status:** <state.phase> (<state.stop_reason if present>)
 
@@ -198,18 +209,20 @@ npm run typecheck
 **Commands:** <commands list or "none">
 **Result:** <✓ PASSED | ✗ FAILED | ⚠ UNVERIFIED>
 
-## Changes (since checkpoint base)
+## Checkpoint Diffstat
 <git show --stat output>
 
 ## Timeline Event Summary
-- <event_type>: <count>
+<all event types, sorted alphabetically>
+- event_type_a: <count>
+- event_type_b: <count>
 ...
 
 ## Artifacts
-- Timeline: <path to timeline.jsonl>
-- Journal: <path to journal.md>
-- State: <path to state.json>
-- Review: <path to review_digest.md> (if exists)
+- Timeline: .runr/runs/<run_id>/timeline.jsonl
+- Journal: .runr/runs/<run_id>/journal.md
+- State: .runr/runs/<run_id>/state.json
+- Review: .runr/runs/<run_id>/review_digest.md (if exists)
 
 ---
 🤖 Generated with Runr
@@ -228,7 +241,7 @@ npm run typecheck
 
 3. **Timeline Summary**
    - Read `.runr/runs/<run_id>/timeline.jsonl`
-   - Count events by type (just top N most common)
+   - Count events by type (all event types, sorted alphabetically)
 
 4. **Output**
    - Default: stdout
@@ -288,25 +301,46 @@ diff /tmp/b1.md /tmp/b2.md
 
 1. **Validation (Fail Fast)**
    - Load run state
-   - Check checkpoint_sha exists
-   - Check verification evidence if required
-   - Check working tree clean if required
-   - Check target branch exists
+   - Check checkpoint_sha exists (reason: `no_checkpoint` if missing from state)
+   - Check checkpoint SHA exists as git object (reason: `run_not_ready` if git object missing)
+   - Check verification evidence if required (reason: `verification_missing`)
+   - Check working tree clean if required (reason: `dirty_tree`)
+   - Check target branch exists (reason: `target_branch_missing`)
    - Return single actionable error on failure
 
 2. **Cherry-Pick Execution**
    ```typescript
-   // Checkout target branch
-   await execa('git', ['checkout', targetBranch], { cwd: repoPath });
+   // Capture starting branch (for restoration)
+   const { stdout: startingBranch } = await execa('git', ['rev-parse', '--abbrev-ref', 'HEAD'], { cwd: repoPath });
 
-   // Cherry-pick checkpoint
    try {
-     await execa('git', ['cherry-pick', checkpointSha], { cwd: repoPath });
-   } catch (error) {
-     // Abort on conflict
-     await execa('git', ['cherry-pick', '--abort'], { cwd: repoPath });
-     // Emit submit_conflict event
-     // Exit with error
+     // Checkout target branch
+     await execa('git', ['checkout', targetBranch], { cwd: repoPath });
+
+     // Cherry-pick checkpoint
+     try {
+       await execa('git', ['cherry-pick', checkpointSha], { cwd: repoPath });
+     } catch (error) {
+       // Get conflicted files
+       const { stdout: conflictFiles } = await execa('git', ['diff', '--name-only', '--diff-filter=U'], { cwd: repoPath });
+       const conflictedFiles = conflictFiles.split('\n').filter(Boolean).sort();
+
+       // Abort on conflict
+       await execa('git', ['cherry-pick', '--abort'], { cwd: repoPath });
+
+       // Restore starting branch (best-effort)
+       try {
+         await execa('git', ['checkout', startingBranch], { cwd: repoPath });
+       } catch {}
+
+       // Emit submit_conflict event with conflicted files
+       // Exit with error
+     }
+   } finally {
+     // Always restore starting branch (best-effort)
+     try {
+       await execa('git', ['checkout', startingBranch], { cwd: repoPath });
+     } catch {}
    }
    ```
 
