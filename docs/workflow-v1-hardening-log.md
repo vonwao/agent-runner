@@ -60,15 +60,40 @@ Evidence (optional):
 
 ## Dogfood Protocol (for each submit)
 
-Force this checklist for next 10 uses:
+**Enforced wrapper (use this):**
+```bash
+./scripts/dogfood-submit.sh <run_id> --to dev
+```
 
-1. `runr bundle <run_id> > /tmp/bundle.md`
-2. `runr submit <run_id> --to dev --dry-run`
-3. `git status && git branch --show-current` (spot check invariants)
-4. Real submit: `runr submit <run_id> --to dev` (or `--push` if you want Runr to own integration)
-5. Log friction if it meets one-minute rule
+This wrapper automatically:
+1. Generates bundle → /tmp/bundle-{run_id}.md
+2. Runs submit --dry-run
+3. Spot-checks invariants (branch, status, timeline lines)
+4. Runs real submit
+5. Prompts for push (Git owns push - Option B)
+6. Shows OK/FAIL summary
+7. Prompts to log friction if it meets one-minute rule
+
+**Push strategy locked:** Option B (Git owns push) for week 1 dogfooding. Cleaner separation of concerns, easier debugging.
 
 **If any invariant breaks even once:** stop dogfooding, fix immediately, add regression test.
+
+---
+
+## Deliberate Gate Testing
+
+**Don't wait for natural occurrence - deliberately trigger validation cases:**
+
+```bash
+./scripts/test-gate-cases.sh
+```
+
+This script tests:
+- ✅ dirty_tree validation (creates uncommitted file, runs submit, checks error)
+- ✅ target_branch_missing validation (submits to fake branch, checks error)
+- ⚠️  conflict recovery (manual test - see script output for checklist)
+
+**Run this ONCE during dogfooding week to satisfy release gate requirements.**
 
 ---
 
@@ -77,8 +102,8 @@ Force this checklist for next 10 uses:
 Ship v1 when:
 
 - ✅ 10 submits succeeded
-- ✅ At least 1 conflict case happened and recovered cleanly
-- ✅ At least 1 "dirty_tree" and 1 "target_branch_missing" got hit in real life and error was good enough
+- ✅ At least 1 conflict case happened and recovered cleanly (use test-gate-cases.sh)
+- ✅ At least 1 "dirty_tree" and 1 "target_branch_missing" got hit (use test-gate-cases.sh)
 - ✅ No P0 invariant breaks
 
 ---
