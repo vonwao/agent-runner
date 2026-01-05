@@ -7,6 +7,72 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-01-05
+
+**Solo Workflow** — Effortless dev→main checkpoints with automated safety.
+
+### Added
+
+- **Workflow System**: Three profiles (solo/pr/trunk) with bundle→submit integration
+  - `runr bundle <run_id>` — Generate deterministic markdown evidence packet
+  - `runr submit <run_id> --to <branch>` — Cherry-pick verified checkpoint to target branch
+  - Submit validation: clean tree, terminal state, verification evidence required
+  - Conflict handling: clean abort with diagnostic timeline event
+  - `--dry-run` mode for safe preview before integration
+
+- **Workflow Packs**: One-command scaffolding for complete workflow setup
+  - `runr init --pack solo` — Dev branch workflow (dev → main, no PR)
+  - `runr init --pack trunk` — Trunk-based development (main only)
+  - `runr init --pack pr` — Pull request workflow (feature → main via PR)
+  - `runr packs` — List available packs
+  - Auto-generated `AGENTS.md` and `CLAUDE.md` with workflow-specific guidance
+  - Pack templates with variable substitution (project name, verification commands, branches)
+
+- **Auto .gitignore Setup**: Packs automatically add runtime artifact entries
+  - `.runr/runs/` (runtime state)
+  - `.runr-worktrees/` (isolated worktrees)
+  - `.runr/orchestrations/` (orchestration artifacts)
+  - Keeps `.runr/runr.config.json` and `.runr/tasks/*.md` tracked
+
+- **Meta-Agent Safety Contract**: Behavioral guardrails for agents driving Runr
+  - Rule 1: Never delete on dirty tree
+  - Rule 2: Never delete outside `.runr/` without explicit file list
+  - Rule 3: Must end with bundle + dry-run
+  - Embedded in pack templates (`CLAUDE.md`)
+
+- **90-Second Demo**: `dogfood/hello-world/` minimal example
+  - Complete walkthrough in README
+  - Shows full workflow: init → run → bundle → submit
+  - Pre-initialized with solo pack
+
+### Documentation
+
+- **Solo Workflow Example**: Canonical copy-paste reference ([docs/examples/solo-workflow.md](docs/examples/solo-workflow.md))
+  - Complete 6-step workflow loop
+  - Meta-agent integration patterns (Mode A/B)
+  - .gitignore policy explained
+  - Troubleshooting section
+  - Quick reference card
+
+- **Comprehensive Documentation Overhaul**:
+  - [Workflow Guide](docs/workflow-guide.md) — Bundle/submit/integration workflows
+  - [Packs User Guide](docs/packs-user-guide.md) — Choosing and using packs
+  - [Safety Guide](docs/safety-guide.md) — All guard mechanisms documented
+  - Updated [CLI Reference](docs/cli.md) with bundle/submit/packs commands
+  - Updated [Configuration](docs/configuration.md) with workflow config section
+
+### Changed
+
+- `runr init` with pack now creates workflow-ready project instead of minimal config
+- Pack templates replace legacy example task files
+- README.md now features 90-second demo and solo workflow reference
+
+### Fixed
+
+- Documentation gaps: bundle/submit/packs were shipped but undocumented
+- Legacy `.agent/` references throughout documentation
+- Missing .gitignore guidance caused confusion about what to commit
+
 ## [0.4.0] - 2026-01-03
 
 **Case Files** — Every run leaves a machine-readable journal.
@@ -231,7 +297,9 @@ Initial stable release with full dual-LLM orchestration and autonomy features.
 - Worktree strategy documentation
 - CLI reference
 
-[Unreleased]: https://github.com/vonwao/runr/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/vonwao/runr/compare/v0.5.0...HEAD
+[0.5.0]: https://github.com/vonwao/runr/compare/v0.4.0...v0.5.0
+[0.4.0]: https://github.com/vonwao/runr/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/vonwao/runr/compare/v0.2.2...v0.3.0
 [0.2.2]: https://github.com/vonwao/runr/compare/v0.2.1...v0.2.2
 [0.2.1]: https://github.com/vonwao/runr/compare/v0.2.0...v0.2.1
