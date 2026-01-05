@@ -1,13 +1,14 @@
 import fs from 'node:fs';
 import fsPromises from 'node:fs/promises';
 import path from 'node:path';
-import { AgentConfig } from '../config/schema.js';
+import { AgentConfig, getWorkflowProfileDefaults } from '../config/schema.js';
 
 export interface InitOptions {
   repo: string;
   interactive?: boolean;
   print?: boolean;
   force?: boolean;
+  workflow?: 'solo' | 'pr' | 'trunk';
 }
 
 interface DetectedVerification {
@@ -226,7 +227,7 @@ function generateDefaultConfig(repoPath: string): DetectionResult & { reason?: s
 /**
  * Build config object from detection results
  */
-function buildConfig(repoPath: string, detection: DetectionResult): AgentConfig {
+function buildConfig(repoPath: string, detection: DetectionResult, workflowProfile?: 'solo' | 'pr' | 'trunk'): AgentConfig {
   const hasSrc = fs.existsSync(path.join(repoPath, 'src'));
   const hasTests = fs.existsSync(path.join(repoPath, 'tests')) ||
                    fs.existsSync(path.join(repoPath, 'test'));
@@ -243,7 +244,7 @@ function buildConfig(repoPath: string, detection: DetectionResult): AgentConfig 
     allowlist.push('**/*.ts', '**/*.tsx', '**/*.js', '**/*.jsx');
   }
 
-  return {
+  const config: AgentConfig = {
     agent: {
       name: path.basename(repoPath),
       version: '1'
@@ -297,6 +298,13 @@ function buildConfig(repoPath: string, detection: DetectionResult): AgentConfig 
       max_review_rounds: 2
     }
   };
+
+  // Add workflow config if profile specified
+  if (workflowProfile) {
+    config.workflow = getWorkflowProfileDefaults(workflowProfile) as any;
+  }
+
+  return config;
 }
 
 /**
@@ -418,7 +426,7 @@ export async function initCommand(options: InitOptions): Promise<void> {
                     generateDefaultConfig(repoPath);
 
   // Build config
-  const config = buildConfig(repoPath, detection);
+  const config = buildConfig(repoPath, detection, options.workflow);
 
   // If --print mode, just output and exit
   if (options.print) {
@@ -447,6 +455,16 @@ export async function initCommand(options: InitOptions): Promise<void> {
   console.log('✅ Runr initialized successfully!\n');
   console.log(`Config written to: ${configPath}`);
   console.log(`Example tasks created in: ${path.join(runrDir, 'tasks')}/\n`);
+
+  // Report workflow config if set
+  if (options.workflow && config.workflow) {
+    console.log('Workflow configuration:');
+    console.log(`  profile: ${config.workflow.profile}`);
+    console.log(`  integration_branch: ${config.workflow.integration_branch}`);
+    console.log(`  require_verification: ${config.workflow.require_verification}`);
+    console.log(`  require_clean_tree: ${config.workflow.require_clean_tree}`);
+    console.log('');
+  }
 
   if (detection.source === 'package.json') {
     console.log('Detected from package.json:');

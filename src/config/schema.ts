@@ -165,6 +165,20 @@ const resilienceSchema = z.object({
   max_review_rounds: z.number().int().positive().default(2)
 });
 
+// Workflow configuration for integration strategy
+const workflowConfigSchema = z.object({
+  /** Workflow profile preset (solo/pr/trunk) */
+  profile: z.enum(['solo', 'pr', 'trunk']).default('solo'),
+  /** Target branch for integrating verified checkpoints */
+  integration_branch: z.string(),
+  /** Submit strategy (v1: cherry-pick only) */
+  submit_strategy: z.literal('cherry-pick').default('cherry-pick'),
+  /** Require clean working tree before submit */
+  require_clean_tree: z.boolean().default(true),
+  /** Require verification evidence before submit */
+  require_verification: z.boolean().default(true)
+});
+
 export const agentConfigSchema = z.object({
   agent: agentSchema,
   repo: repoSchema.default({}),
@@ -172,11 +186,46 @@ export const agentConfigSchema = z.object({
   verification: verificationSchema,
   workers: workersSchema.default({}),
   phases: phasesSchema.default({}),
-  resilience: resilienceSchema.default({})
+  resilience: resilienceSchema.default({}),
+  workflow: workflowConfigSchema.optional()
 });
 
 export type PhasesConfig = z.infer<typeof phasesSchema>;
 
 export type WorkerConfig = z.infer<typeof workerConfigSchema>;
 
+export type WorkflowConfig = z.infer<typeof workflowConfigSchema>;
+
 export type AgentConfig = z.infer<typeof agentConfigSchema>;
+
+/**
+ * Get default workflow config values for a given profile.
+ */
+export function getWorkflowProfileDefaults(profile: 'solo' | 'pr' | 'trunk'): Partial<WorkflowConfig> {
+  switch (profile) {
+    case 'solo':
+      return {
+        profile: 'solo',
+        integration_branch: 'dev',
+        submit_strategy: 'cherry-pick',
+        require_clean_tree: true,
+        require_verification: true
+      };
+    case 'pr':
+      return {
+        profile: 'pr',
+        integration_branch: 'main',
+        submit_strategy: 'cherry-pick',
+        require_clean_tree: true,
+        require_verification: false
+      };
+    case 'trunk':
+      return {
+        profile: 'trunk',
+        integration_branch: 'main',
+        submit_strategy: 'cherry-pick',
+        require_clean_tree: true,
+        require_verification: true
+      };
+  }
+}

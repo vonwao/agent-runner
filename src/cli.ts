@@ -37,12 +37,14 @@ program
   .command('init')
   .description('Initialize Runr configuration for a repository')
   .option('--repo <path>', 'Path to repository (defaults to current directory)', '.')
+  .option('--workflow <profile>', 'Workflow profile: solo (dev branch), pr (GitHub PRs), or trunk (main branch)')
   .option('--interactive', 'Launch interactive setup wizard to configure verification commands', false)
   .option('--print', 'Display generated config in terminal without writing to disk', false)
   .option('--force', 'Overwrite existing .runr/runr.config.json if present', false)
   .action(async (options) => {
     await initCommand({
       repo: options.repo,
+      workflow: options.workflow,
       interactive: options.interactive,
       print: options.print,
       force: options.force

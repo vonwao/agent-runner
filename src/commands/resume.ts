@@ -399,7 +399,7 @@ interface ResumePlanJson {
   checkpoint: {
     sha: string | null;
     milestone_index: number;
-    source: 'git_log_run_specific' | 'git_log_legacy' | 'none';
+    source: 'sidecar' | 'git_log_run_specific' | 'git_log_legacy' | 'none';
   };
   resume: {
     from_milestone_index: number;
@@ -427,7 +427,7 @@ async function formatResumePlanJson(
   plan: ResumePlan,
   state: RunState,
   effectiveRepoPath: string,
-  checkpointSource: 'git_log_run_specific' | 'git_log_legacy' | 'none'
+  checkpointSource: 'sidecar' | 'git_log_run_specific' | 'git_log_legacy' | 'none'
 ): Promise<ResumePlanJson> {
   const repoStatus = await getWorkingTreeStatus(effectiveRepoPath);
   const warnings: string[] = [];
