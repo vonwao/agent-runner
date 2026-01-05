@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# Error trap - shows where script failed
+trap 'echo "❌ ERROR at line $LINENO" >&2; exit 1' ERR
+
 # Dogfood submit wrapper - enforces checklist and spot-checks invariants
 # Usage: ./scripts/dogfood-submit.sh <run_id> [--to branch]
 
@@ -56,7 +59,7 @@ if [ -f "$TIMELINE_PATH" ]; then
   BEFORE_TIMELINE_LINES="$(wc -l < "$TIMELINE_PATH" | tr -d ' ')"
 fi
 
-echo "   Branch: $BEFORE_BRANCH"
+echo "   Starting branch: $BEFORE_BRANCH"
 echo "   Dirty files: $BEFORE_STATUS"
 echo "   Timeline lines: $BEFORE_TIMELINE_LINES"
 echo ""
@@ -70,7 +73,8 @@ if ! runr submit "$RUN_ID" --to "$TARGET_BRANCH"; then
   AFTER_BRANCH="$(git branch --show-current)"
   if [ "$AFTER_BRANCH" != "$BEFORE_BRANCH" ]; then
     echo "⚠️  WARNING: Branch NOT restored (was: $BEFORE_BRANCH, now: $AFTER_BRANCH)"
-    echo "   P0 invariant violation detected!"
+    echo "   P0-3 INVARIANT VIOLATION: Recovery failed!"
+    exit 1
   else
     echo "   ✓ Branch restored correctly despite failure"
   fi
@@ -80,29 +84,50 @@ fi
 echo "   ✓ Submit succeeded"
 echo ""
 
-# Step 5: Verify branch restored
+# Step 5: Verify branch restored and timeline incremented
 AFTER_BRANCH="$(git branch --show-current)"
+AFTER_TIMELINE_LINES="0"
+if [ -f "$TIMELINE_PATH" ]; then
+  AFTER_TIMELINE_LINES="$(wc -l < "$TIMELINE_PATH" | tr -d ' ')"
+fi
+
+# P0-3: Branch restoration check
 if [ "$AFTER_BRANCH" != "$BEFORE_BRANCH" ]; then
   echo "❌ FAIL: Branch NOT restored (was: $BEFORE_BRANCH, now: $AFTER_BRANCH)"
-  echo "   P0 invariant violation!"
+  echo "   P0-3 INVARIANT VIOLATION: Recovery failed!"
   exit 1
 fi
 echo "   ✓ Branch restored: $AFTER_BRANCH"
+
+# Timeline increment check (should have added run_submitted event)
+if [ "$AFTER_TIMELINE_LINES" -le "$BEFORE_TIMELINE_LINES" ]; then
+  echo "❌ FAIL: Timeline did not increment ($BEFORE_TIMELINE_LINES → $AFTER_TIMELINE_LINES)"
+  echo "   Expected run_submitted event to be written"
+  exit 1
+fi
+echo "   ✓ Timeline incremented: $BEFORE_TIMELINE_LINES → $AFTER_TIMELINE_LINES"
 echo ""
 
 # Step 6: Optional push (Git owns push - Option B)
 echo "📤 [5/5] Push to origin?"
-read -p "   Push $TARGET_BRANCH to origin? (y/N): " -n 1 -r
-echo ""
-if [[ $REPLY =~ ^[Yy]$ ]]; then
-  echo "   Pushing $TARGET_BRANCH to origin..."
-  if git push origin "$TARGET_BRANCH"; then
-    echo "   ✓ Pushed successfully"
+if [ -t 0 ]; then
+  # Interactive mode
+  read -p "   Push $TARGET_BRANCH to origin? (y/N): " -n 1 -r || true
+  echo ""
+  if [[ ${REPLY:-n} =~ ^[Yy]$ ]]; then
+    echo "   Pushing $TARGET_BRANCH to origin..."
+    if git push origin "$TARGET_BRANCH"; then
+      echo "   ✓ Pushed successfully"
+    else
+      echo "   ⚠️  Push failed (but submit succeeded)"
+    fi
   else
-    echo "   ⚠️  Push failed (but submit succeeded)"
+    echo "   Skipped push (run manually: git push origin $TARGET_BRANCH)"
   fi
 else
-  echo "   Skipped push (run manually: git push origin $TARGET_BRANCH)"
+  # Non-interactive mode
+  echo "   Non-interactive mode: skipping push"
+  echo "   Run manually: git push origin $TARGET_BRANCH"
 fi
 echo ""
 
@@ -111,6 +136,7 @@ echo "=== Summary ==="
 echo "✅ PASS: All checks passed"
 echo "   Bundle: $BUNDLE_OUTPUT"
 echo "   Submit: $RUN_ID → $TARGET_BRANCH"
-echo "   Timeline: $BEFORE_TIMELINE_LINES → $(wc -l < "$TIMELINE_PATH" | tr -d ' ') lines"
+echo "   Timeline: $BEFORE_TIMELINE_LINES → $AFTER_TIMELINE_LINES lines"
+echo "   Current branch: $AFTER_BRANCH (restored)"
 echo ""
 echo "Next: Review bundle if needed, or continue dogfooding"
