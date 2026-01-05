@@ -1,0 +1,34 @@
+# Runr Recommended .gitignore
+# Copy this to your project's .gitignore
+
+# === COMMIT THESE (configuration and tasks are project assets) ===
+# .runr/runr.config.json
+# .runr/tasks/**/*.md
+# .runr/packs/**  (if you use custom packs)
+# AGENTS.md
+# CLAUDE.md
+
+# === IGNORE THESE (runtime artifacts, not semantic code) ===
+
+# Run artifacts (timelines, state, logs)
+.runr/runs/
+
+# Worktrees (isolated git trees for concurrent execution)
+.runr-worktrees/
+.agent-worktrees/  # Legacy
+
+# Orchestration artifacts
+.runr/orchestrations/
+
+# Temporary files
+.runr/tmp/
+.runr/.tmp/
+
+# === OPTIONAL: Bundle audit trail (human-readable history) ===
+# If you want to commit run evidence, use bundles instead of raw state:
+# !.runr/bundles/*.md  # Uncomment to commit curated bundle outputs
+
+# === LEGACY PATHS (if migrating from agent-runner) ===
+.agent/runs/
+.agent/orchestrations/
+.agent/worktrees/

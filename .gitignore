@@ -8,4 +8,9 @@ apps/deckbuilder/package-lock.json
 context-pack.*
 scripts/
 src.zip
+
+# Runr artifacts (see .gitignore.recommended for user project guidance)
 .runr-worktrees/
+.runr/runs/
+.runr/orchestrations/
+.agent-worktrees/  # Legacy

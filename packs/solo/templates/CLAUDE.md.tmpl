@@ -91,6 +91,20 @@ runr submit <run_id> --to {{integration_branch}} --dry-run
 - Keep changes focused on task requirements
 - Use verification results to guide decisions
 
+## Deletion Safety Rules
+
+**Never delete files outside `.runr/` unless:**
+1. File is explicitly listed in task requirements
+2. Working tree is clean (no uncommitted changes)
+3. You have verified the file is safe to delete
+
+**If asked to "clean up" or "remove files":**
+- Respond: "I can only safely delete files within `.runr/` directory"
+- Suggest: "Would you like me to run `runr gc --dry-run` to preview worktree cleanup?"
+- Never assume what "cleanup" means - always ask for explicit file list
+
+**Hard rule:** If `git status --porcelain` shows uncommitted changes, refuse all deletion operations until tree is clean.
+
 ## Workflow: {{pack_name}}
 
 This project uses the **{{pack_name}}** pack:
