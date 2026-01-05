@@ -17,6 +17,7 @@ import { pathsCommand } from './commands/paths.js';
 import { metricsCommand } from './commands/metrics.js';
 import { versionCommand } from './commands/version.js';
 import { initCommand } from './commands/init.js';
+import { packsCommand } from './commands/packs.js';
 import { watchCommand } from './commands/watch.js';
 import { journalCommand, noteCommand, openCommand } from './commands/journal.js';
 import { bundleCommand } from './commands/bundle.js';
@@ -40,17 +41,32 @@ program
   .description('Initialize Runr configuration for a repository')
   .option('--repo <path>', 'Path to repository (defaults to current directory)', '.')
   .option('--workflow <profile>', 'Workflow profile: solo (dev branch), pr (GitHub PRs), or trunk (main branch)')
+  .option('--pack <name>', 'Use a workflow pack (solo, pr, trunk) - provides defaults and templates')
+  .option('--about <description>', 'Project description for documentation templates')
+  .option('--with-claude', 'Create CLAUDE.md guide for Claude Code integration', false)
   .option('--interactive', 'Launch interactive setup wizard to configure verification commands', false)
   .option('--print', 'Display generated config in terminal without writing to disk', false)
   .option('--force', 'Overwrite existing .runr/runr.config.json if present', false)
+  .option('--dry-run', 'Preview what would be created without making changes', false)
   .action(async (options) => {
     await initCommand({
       repo: options.repo,
       workflow: options.workflow,
+      pack: options.pack,
+      about: options.about,
+      withClaude: options.withClaude,
       interactive: options.interactive,
       print: options.print,
-      force: options.force
+      force: options.force,
+      dryRun: options.dryRun
     });
+  });
+
+program
+  .command('packs')
+  .description('List available workflow packs')
+  .action(async () => {
+    await packsCommand();
   });
 
 program

@@ -1,0 +1,116 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Runr Pack Manifest",
+  "description": "Schema for Runr pack manifests (v1)",
+  "type": "object",
+  "required": ["pack_version", "name", "display_name", "description"],
+  "properties": {
+    "pack_version": {
+      "type": "integer",
+      "const": 1,
+      "description": "Pack schema version (must be 1 for v1)"
+    },
+    "name": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9-]*$",
+      "description": "Pack identifier (lowercase, alphanumeric with hyphens)"
+    },
+    "display_name": {
+      "type": "string",
+      "description": "Human-readable pack name"
+    },
+    "description": {
+      "type": "string",
+      "description": "Brief description of pack purpose and workflow"
+    },
+    "defaults": {
+      "type": "object",
+      "description": "Default configuration values",
+      "properties": {
+        "profile": {
+          "type": "string",
+          "enum": ["solo", "pr", "trunk"]
+        },
+        "integration_branch": {
+          "type": "string"
+        },
+        "release_branch": {
+          "type": "string"
+        },
+        "submit_strategy": {
+          "type": "string",
+          "const": "cherry-pick"
+        },
+        "require_clean_tree": {
+          "type": "boolean"
+        },
+        "require_verification": {
+          "type": "boolean"
+        },
+        "protected_branches": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "templates": {
+      "type": "object",
+      "description": "Template file mappings (key -> relative path)",
+      "additionalProperties": {
+        "type": "string"
+      }
+    },
+    "init_actions": {
+      "type": "array",
+      "description": "Declarative init actions (idempotent)",
+      "items": {
+        "oneOf": [
+          {
+            "type": "object",
+            "required": ["type", "path", "line"],
+            "properties": {
+              "type": {
+                "const": "ensure_gitignore_entry"
+              },
+              "path": {
+                "type": "string"
+              },
+              "line": {
+                "type": "string"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": ["type", "path", "template"],
+            "properties": {
+              "type": {
+                "const": "create_file_if_missing"
+              },
+              "path": {
+                "type": "string"
+              },
+              "template": {
+                "type": "string"
+              },
+              "mode": {
+                "type": "string",
+                "pattern": "^0[0-7]{3}$"
+              },
+              "when": {
+                "type": "object",
+                "properties": {
+                  "flag": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        ]
+      }
+    }
+  }
+}

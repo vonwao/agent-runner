@@ -2,6 +2,9 @@ import fs from 'node:fs';
 import fsPromises from 'node:fs/promises';
 import path from 'node:path';
 import { AgentConfig, getWorkflowProfileDefaults } from '../config/schema.js';
+import { loadPackByName } from '../packs/loader.js';
+import { executeActions, ActionContext } from '../packs/actions.js';
+import { formatVerificationCommands, TemplateContext } from '../packs/renderer.js';
 
 export interface InitOptions {
   repo: string;
@@ -9,6 +12,10 @@ export interface InitOptions {
   print?: boolean;
   force?: boolean;
   workflow?: 'solo' | 'pr' | 'trunk';
+  pack?: string;
+  about?: string;
+  withClaude?: boolean;
+  dryRun?: boolean;
 }
 
 interface DetectedVerification {
@@ -414,10 +421,28 @@ export async function initCommand(options: InitOptions): Promise<void> {
   }
 
   // Check if config already exists
-  if (fs.existsSync(configPath) && !options.force) {
+  if (fs.existsSync(configPath) && !options.force && !options.dryRun) {
     console.error('Error: .runr/runr.config.json already exists');
     console.error('Use --force to overwrite');
     process.exit(1);
+  }
+
+  // Load pack if specified
+  let pack = null;
+  if (options.pack) {
+    pack = loadPackByName(options.pack);
+    if (!pack) {
+      console.error(`Error: Pack "${options.pack}" not found`);
+      console.error('Run "runr packs" to see available packs');
+      process.exit(1);
+    }
+    if (!pack.validation.valid) {
+      console.error(`Error: Pack "${options.pack}" is invalid:`);
+      for (const error of pack.validation.errors) {
+        console.error(`  - ${error}`);
+      }
+      process.exit(1);
+    }
   }
 
   // Detect verification commands - try Python first, then package.json, then default
@@ -425,8 +450,37 @@ export async function initCommand(options: InitOptions): Promise<void> {
                     detectFromPackageJson(repoPath) ||
                     generateDefaultConfig(repoPath);
 
+  // Determine workflow profile (pack defaults override --workflow flag)
+  let workflowProfile = options.workflow;
+  if (pack?.manifest.defaults?.profile) {
+    workflowProfile = pack.manifest.defaults.profile;
+  }
+
   // Build config
-  const config = buildConfig(repoPath, detection, options.workflow);
+  const config = buildConfig(repoPath, detection, workflowProfile);
+
+  // Apply pack defaults to config if pack is loaded
+  if (pack?.manifest.defaults) {
+    const packDefaults = pack.manifest.defaults;
+
+    // Ensure workflow config exists
+    if (!config.workflow) {
+      config.workflow = {
+        profile: packDefaults.profile || 'solo',
+        integration_branch: packDefaults.integration_branch || 'main',
+        submit_strategy: 'cherry-pick',
+        require_clean_tree: packDefaults.require_clean_tree ?? true,
+        require_verification: packDefaults.require_verification ?? true
+      };
+    } else {
+      // Apply pack defaults to existing workflow config
+      if (packDefaults.profile) config.workflow.profile = packDefaults.profile;
+      if (packDefaults.integration_branch) config.workflow.integration_branch = packDefaults.integration_branch;
+      if (packDefaults.submit_strategy) config.workflow.submit_strategy = packDefaults.submit_strategy;
+      if (packDefaults.require_clean_tree !== undefined) config.workflow.require_clean_tree = packDefaults.require_clean_tree;
+      if (packDefaults.require_verification !== undefined) config.workflow.require_verification = packDefaults.require_verification;
+    }
+  }
 
   // If --print mode, just output and exit
   if (options.print) {
@@ -434,22 +488,103 @@ export async function initCommand(options: InitOptions): Promise<void> {
     return;
   }
 
-  // Create .runr directory
-  fs.mkdirSync(runrDir, { recursive: true });
+  // Handle --dry-run mode (pack actions only)
+  if (options.dryRun && pack) {
+    console.log('[DRY RUN] Pack-based initialization plan:\n');
+    console.log(`Pack: ${pack.manifest.display_name}`);
+    console.log(`Description: ${pack.manifest.description}\n`);
+    console.log('Config changes:');
+    console.log(`  - Workflow profile: ${config.workflow?.profile || 'none'}`);
+    console.log(`  - Integration branch: ${config.workflow?.integration_branch || 'none'}`);
+    console.log(`  - Require verification: ${config.workflow?.require_verification}`);
+    console.log(`  - Require clean tree: ${config.workflow?.require_clean_tree}\n`);
 
-  // Ensure .runr/ is gitignored
-  const added = await ensureGitignoreEntry(repoPath, '.runr/');
-  if (added) {
-    console.log('✅ Added .runr/ to .gitignore');
+    if (pack.manifest.init_actions && pack.manifest.init_actions.length > 0) {
+      console.log('Init actions:');
+      const templateContext: TemplateContext = {
+        project_name: options.about || path.basename(repoPath),
+        project_about: options.about || `Project: ${path.basename(repoPath)}`,
+        verification_commands: formatVerificationCommands(config.verification),
+        integration_branch: config.workflow?.integration_branch || 'main',
+        release_branch: pack.manifest.defaults?.release_branch || 'main',
+        pack_name: pack.manifest.name
+      };
+
+      const actionContext: ActionContext = {
+        repoPath,
+        packDir: pack.packDir,
+        templates: pack.manifest.templates || {},
+        templateContext,
+        flags: {
+          with_claude: options.withClaude || false
+        },
+        dryRun: true
+      };
+
+      const results = await executeActions(pack.manifest.init_actions, actionContext);
+      for (const result of results) {
+        console.log(`  ${result.message}`);
+      }
+    }
+    return;
+  }
+
+  // Create .runr directory
+  if (!options.dryRun) {
+    fs.mkdirSync(runrDir, { recursive: true });
+  }
+
+  // Execute pack actions if pack is loaded
+  if (pack?.manifest.init_actions) {
+    const templateContext: TemplateContext = {
+      project_name: options.about || path.basename(repoPath),
+      project_about: options.about || `Project: ${path.basename(repoPath)}`,
+      verification_commands: formatVerificationCommands(config.verification),
+      integration_branch: config.workflow?.integration_branch || 'main',
+      release_branch: pack.manifest.defaults?.release_branch || 'main',
+      pack_name: pack.manifest.name
+    };
+
+    const actionContext: ActionContext = {
+      repoPath,
+      packDir: pack.packDir,
+      templates: pack.manifest.templates || {},
+      templateContext,
+      flags: {
+        with_claude: options.withClaude || false
+      },
+      dryRun: false
+    };
+
+    const results = await executeActions(pack.manifest.init_actions, actionContext);
+    for (const result of results) {
+      if (result.error) {
+        console.log(`❌ ${result.message}: ${result.error}`);
+      } else if (result.executed) {
+        console.log(`✅ ${result.message}`);
+      } else {
+        console.log(`✓ ${result.message}`);
+      }
+    }
   } else {
-    console.log('✓ .runr/ already in .gitignore');
+    // Legacy path: ensure .runr/ is gitignored if no pack actions
+    const added = await ensureGitignoreEntry(repoPath, '.runr/');
+    if (added) {
+      console.log('✅ Added .runr/ to .gitignore');
+    } else {
+      console.log('✓ .runr/ already in .gitignore');
+    }
   }
 
   // Write config
-  fs.writeFileSync(configPath, JSON.stringify(config, null, 2) + '\n');
+  if (!options.dryRun) {
+    fs.writeFileSync(configPath, JSON.stringify(config, null, 2) + '\n');
+  }
 
-  // Create example tasks
-  createExampleTasks(runrDir);
+  // Create example tasks (only if no pack is loaded)
+  if (!pack && !options.dryRun) {
+    createExampleTasks(runrDir);
+  }
 
   // Report results
   console.log('✅ Runr initialized successfully!\n');
