@@ -2,8 +2,14 @@
 
 **Sprint Goal:** Make checkpoint/resume mechanism bulletproof and add essential forensics infrastructure
 
-**Duration:** TBD
-**Status:** Planning
+**Duration:** Jan 5 - TBD
+**Status:** In Progress (1/4 deliverables complete)
+
+**Quick Status:**
+- ✅ Checkpoint sidecar metadata (commit `1d43ffd`) - **DONE**
+- ⏸️ allow_deps allowlist - **NEXT**
+- 📋 Stop reason registry - **BACKLOG**
+- 📋 RunState schema versioning - **BACKLOG**
 
 ---
 
@@ -29,7 +35,7 @@ This sprint addresses architectural friction points that are starting to bite as
 
 ## Sprint Deliverables
 
-### 1. Checkpoint Metadata Sidecar (HIGH PRIORITY)
+### 1. Checkpoint Metadata Sidecar ✅ COMPLETED
 **Leverage:** High | **Risk:** Low | **Effort:** Small
 
 **Problem:** Git commit messages are not a database. Every format evolution requires "legacy parser forever."
@@ -38,10 +44,23 @@ This sprint addresses architectural friction points that are starting to bite as
 
 **Spec:** [checkpoint-metadata-sidecar.md](./specs/checkpoint-metadata-sidecar.md)
 
+**Status:** ✅ Completed Jan 5, 2026 (commit `1d43ffd`)
+
+**Delivered:**
+- ✅ Core implementation: `src/store/checkpoint-metadata.ts` (162 lines)
+- ✅ Sidecar write in `handleCheckpoint()` with best-effort pattern
+- ✅ Resume reads sidecar first, falls back to git log (clean priority chain)
+- ✅ Doctor warns if `.runr/` not gitignored (uses `git check-ignore`)
+- ✅ Init ensures `.runr/` in `.gitignore`
+- ✅ Schema versioning: integer `schema_version: 1` (not semver)
+- ✅ Comprehensive tests: 14 unit + 5 integration tests
+- ✅ New events: `checkpoint_sidecar_write_failed`, `resume_checkpoint_selected`
+- ✅ Modified event: `checkpoint_complete` now includes `sidecar_written` boolean
+
 **Success Criteria:**
-- Resume reads sidecar first, git log parsing is fallback
-- No breaking changes to existing runs
-- Drift detection uses sidecar when available
+- ✅ Resume reads sidecar first, git log parsing is fallback
+- ✅ No breaking changes to existing runs
+- ⏸️ Drift detection uses sidecar when available (can be enhanced later)
 
 ---
 
@@ -106,17 +125,24 @@ This sprint addresses architectural friction points that are starting to bite as
 
 ## Implementation Order
 
-**Week 1:**
-1. Checkpoint metadata sidecar (spec + implementation)
-2. RunState schema versioning (quick win, enables #1)
+**✅ Completed (Jan 5):**
+1. ✅ Checkpoint metadata sidecar - Spec + implementation + tests complete
+   - Note: Sidecar has its own schema_version (integer 1), RunState schema versioning deferred
 
-**Week 2:**
-3. allow_deps allowlist + lockfile_changed event
-4. Stop reason registry
+**🔄 Up Next:**
+2. Structured allow_deps with Allowlist (HIGH PRIORITY)
+   - CLI: `--allow-deps zod,date-fns`
+   - Config: persistent allowlist
+   - Timeline: `lockfile_changed` event with forensics
+
+**📋 Backlog:**
+3. Stop Reason Registry (MEDIUM PRIORITY)
+4. RunState Schema Versioning (MEDIUM PRIORITY - may not be needed if sidecar pattern works)
 
 **Why this order:**
-- Items 1-2 are tightly coupled (sidecar needs schema versioning)
-- Items 3-4 are independent and can be done in parallel
+- Item 1 is the biggest risk reduction (resume resilience)
+- Item 2 is the biggest UX win (safe deps without trust loss)
+- Items 3-4 are nice-to-have polish
 
 ---
 
@@ -139,17 +165,42 @@ This sprint addresses architectural friction points that are starting to bite as
 ## Success Metrics
 
 **Checkpoint Resilience:**
-- Resume success rate even after git rebase/squash
-- Drift detection uses sidecar (faster, more reliable)
+- ✅ Resume success rate even after git rebase/squash (fallback chain: sidecar → git_log_run_specific → git_log_legacy)
+- ✅ Sidecar metadata provides clean provenance (no git message parsing in happy path)
+- ⏸️ Drift detection uses sidecar (can be enhanced to prefer sidecar in future)
 
 **Deps Safety:**
-- Users can install specific packages without scary blanket permission
-- Lockfile changes are visible in timeline
-- Package count warnings catch transitive explosions
+- ⏸️ Users can install specific packages without scary blanket permission
+- ⏸️ Lockfile changes are visible in timeline
+- ⏸️ Package count warnings catch transitive explosions
 
 **Code Quality:**
-- Stop reason diagnosis becomes lookup, not string matching
-- Schema evolution has clear path forward
+- ✅ Removed "worst hidden schema" (checkpoint metadata no longer embedded in commit messages)
+- ⏸️ Stop reason diagnosis becomes lookup, not string matching
+- ✅ Schema evolution has clear path forward (sidecar uses `schema_version: 1`)
+
+---
+
+## Lessons Learned (Deliverable #1)
+
+**What Worked:**
+- Integer `schema_version` (not semver) - simpler, file formats don't need semantic versioning
+- Best-effort sidecar write pattern - never fails runs, degrades gracefully
+- Optional fields (`tier`, `verification_commands`) - don't fake missing data
+- Safe optional chaining (`?.`) for runtime values - defensive programming pays off
+- Git check-ignore preferred over .gitignore parsing - uses git's own logic
+
+**What Changed During Implementation:**
+- Originally planned semver `"1.0.0"` → switched to integer `1` (user corrective feedback)
+- Added mtime fallback for tie-breaking (created_at might be missing in corrupt sidecars)
+- Added absolute path in error event payload (better debugging)
+- Tracked actual `sidecarWritten` boolean (not hardcoded `true`)
+
+**Impact:**
+- Resume is now robust to git history rewrites (rebase, squash, cherry-pick)
+- Checkpoint metadata is auditable, structured, and versioned
+- Doctor/init ensure `.runr/` doesn't pollute working tree
+- 867 tests passing (including 14 new unit + 5 new integration tests)
 
 ---
 
