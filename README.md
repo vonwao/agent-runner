@@ -157,12 +157,16 @@ Available: `nextjs`, `react`, `drizzle`, `prisma`, `vitest`, `jest`, `playwright
 | Command | What it does |
 |---------|--------------|
 | `runr init` | Initialize config (auto-detect verify commands) |
+| `runr init --pack <name>` | Initialize with workflow pack (solo/trunk) |
+| `runr packs` | List available workflow packs |
 | `runr run --task <file>` | Start a task |
 | `runr resume <id>` | Continue from checkpoint |
 | `runr watch <id> --auto-resume` | Watch run + auto-resume on failure |
 | `runr status [id]` | Show run state |
 | `runr follow [id]` | Tail run progress |
 | `runr report <id>` | Generate run report (includes next_action) |
+| `runr bundle <id>` | Generate deterministic evidence bundle |
+| `runr submit <id> --to <branch>` | Submit verified checkpoint to branch |
 | `runr journal [id]` | Generate and display case file |
 | `runr note <message>` | Add timestamped note to run |
 | `runr open [id]` | Open journal in $EDITOR |

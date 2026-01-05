@@ -54,6 +54,13 @@ Config is loaded from `.runr/runr.config.json` by default, or a path provided wi
     "auto_resume_delays_ms": [30000, 120000, 300000],
     "max_worker_call_minutes": 45,
     "max_review_rounds": 2
+  },
+  "workflow": {
+    "profile": "solo",
+    "integration_branch": "dev",
+    "submit_strategy": "cherry-pick",
+    "require_clean_tree": true,
+    "require_verification": true
   }
 }
 ```
@@ -153,6 +160,53 @@ Map phases to workers:
 | `auto_resume_delays_ms` | number[] | `[30000, 120000, 300000]` | Backoff delays |
 | `max_worker_call_minutes` | number | `45` | Hard cap on worker call duration |
 | `max_review_rounds` | number | `2` | Max review rounds before `review_loop_detected` |
+
+### workflow
+
+Controls integration strategy for submitting verified checkpoints to target branches.
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `profile` | string | `"solo"` | Workflow profile: `solo`, `pr`, or `trunk` |
+| `integration_branch` | string | *required* | Target branch for `runr submit` |
+| `submit_strategy` | string | `"cherry-pick"` | Submit strategy (v1: cherry-pick only) |
+| `require_clean_tree` | boolean | `true` | Require clean working tree before submit |
+| `require_verification` | boolean | `true` | Require verification evidence before submit |
+
+**Workflow Profiles:**
+
+| Profile | Integration Branch | Release Branch | Use Case |
+|---------|-------------------|----------------|----------|
+| `solo` | `dev` | `main` | Solo development with dev → main workflow |
+| `pr` | `main` | `main` | Pull request workflow (feature branches → main) |
+| `trunk` | `main` | `main` | Trunk-based development (main only) |
+
+Profiles are presets that configure `integration_branch` and recommended practices. You can override individual fields.
+
+**Example configurations:**
+
+```json
+// Solo development workflow (dev → main)
+{
+  "workflow": {
+    "profile": "solo",
+    "integration_branch": "dev",
+    "require_verification": true
+  }
+}
+
+// Trunk-based development (main only)
+{
+  "workflow": {
+    "profile": "trunk",
+    "integration_branch": "main",
+    "require_verification": true,
+    "require_clean_tree": true
+  }
+}
+```
+
+**Note:** Workflow configuration is optional. If omitted, `runr submit` requires explicit `--to <branch>` flag.
 
 ## Minimal Config
 

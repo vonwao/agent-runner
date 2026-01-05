@@ -28,6 +28,67 @@ npm link
 
 ## Commands
 
+### runr init
+
+Initialize Runr configuration in a project.
+
+```bash
+runr init [options]
+```
+
+| Flag | Description | Default |
+|------|-------------|---------|
+| `--repo <path>` | Target repo path | `.` |
+| `--pack <name>` | Initialize with workflow pack | - |
+| `--dry-run` | Preview changes without writing | `false` |
+
+**Workflow Packs:**
+
+Packs provide complete workflow presets (config, docs, branch strategy):
+- `solo` - Development branch workflow (dev → main)
+- `trunk` - Trunk-based development (main only)
+
+**Examples:**
+```bash
+# Interactive setup (auto-detects verification commands)
+runr init
+
+# Initialize with workflow pack
+runr init --pack solo
+
+# Preview pack changes
+runr init --pack trunk --dry-run
+```
+
+See `runr packs` to list available packs.
+
+---
+
+### runr packs
+
+List available workflow packs.
+
+```bash
+runr packs [options]
+```
+
+| Flag | Description |
+|------|-------------|
+| `--verbose` | Show pack loading details |
+
+Workflow packs provide:
+- Default configuration (branches, verification settings)
+- Documentation templates (AGENTS.md, CLAUDE.md)
+- Idempotent initialization actions
+
+**Example:**
+```bash
+runr packs              # List available packs
+runr packs --verbose    # Show pack directory
+```
+
+---
+
 ### runr run
 
 Execute a task with full phase lifecycle.
@@ -237,6 +298,84 @@ runr paths [options]
 |------|-------------|
 | `--repo <path>` | Target repo path |
 | `--json` / `--no-json` | Output format |
+
+---
+
+### runr bundle
+
+Generate deterministic evidence bundle from a run.
+
+```bash
+runr bundle <runId> [options]
+```
+
+| Flag | Description | Default |
+|------|-------------|---------|
+| `--repo <path>` | Target repo path | `.` |
+| `--output <path>` | Write bundle to file | stdout |
+
+Bundles contain:
+- Run metadata (status, duration, stop reason)
+- Milestone checklist
+- Verification results (tier, commands, status)
+- Checkpoint SHA and git diffstat
+- Timeline event summary
+
+**Examples:**
+```bash
+# Print bundle to stdout
+runr bundle run_20260105_120000
+
+# Save to file
+runr bundle run_20260105_120000 --output /tmp/bundle.md
+```
+
+**Output format:** Deterministic markdown (same run_id → identical output, sorted data, no absolute paths)
+
+---
+
+### runr submit
+
+Submit verified checkpoint to target branch via cherry-pick.
+
+```bash
+runr submit <runId> [options]
+```
+
+| Flag | Description | Default |
+|------|-------------|---------|
+| `--repo <path>` | Target repo path | `.` |
+| `--to <branch>` | Target branch | config: `workflow.integration_branch` |
+| `--dry-run` | Show plan without making changes | `false` |
+| `--push` | Push target branch after submit | `false` |
+| `--config <path>` | Config file path | `.runr/runr.config.json` |
+
+**Validation chain** (fail-fast with actionable errors):
+1. Run must have checkpoint SHA
+2. Run must be in terminal state (complete or stopped)
+3. Working tree must be clean
+4. Target branch must exist
+5. Verification evidence required (if `workflow.require_verification: true`)
+
+**Examples:**
+```bash
+# Preview submit
+runr submit run_20260105_120000 --to main --dry-run
+
+# Submit to integration branch
+runr submit run_20260105_120000 --to dev
+
+# Submit and push
+runr submit run_20260105_120000 --to main --push
+```
+
+**Conflict handling:**
+- On conflict: writes `submit_conflict` event, aborts cherry-pick, restores starting branch
+- Check timeline.jsonl for conflicted files list
+- Resolution: manual cherry-pick or rebase checkpoint
+
+**Branch restoration:**
+- Always restores starting branch on success, conflict, or error (best-effort)
 
 ---
 
