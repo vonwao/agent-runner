@@ -17,9 +17,28 @@ This directory contains sprint plans and detailed specifications for Runr develo
 - 📋 Stop Reason Registry (backlog)
 - 📋 RunState Schema Versioning (backlog)
 
+---
+
+## Completed Sprints
+
+### [Runr Packs v1 Sprint](./packs-v1-sprint.md)
+
+**Status:** Complete (2026-01-05)
+**Goal:** Data-only workflow presets without ecosystem complexity
+
+**Delivered:**
+- ✅ Pack system core (loader, renderer, actions)
+- ✅ Security hardening (path sanitization, traversal protection)
+- ✅ CLI integration (`runr packs`, `runr init --pack`)
+- ✅ Two initial packs (solo, trunk)
+- ✅ Comprehensive testing (47 tests across 4 suites)
+- ✅ Constraint enforcement (mechanical CI guards)
+
+**Total Effort:** ~580 LOC implementation, ~470 LOC tests, 1 day
+
 ### [Runr-Native Workflow Sprint](./runr-native-workflow-sprint.md)
 
-**Status:** Planning
+**Status:** Complete (2026-01-05)
 **Goal:** Make Runr the reliability railroad tracks - opinionated about trust, flexible about style
 
 **Key Deliverables:**
@@ -28,8 +47,7 @@ This directory contains sprint plans and detailed specifications for Runr develo
 3. `runr submit` command - Safe merge of verified checkpoint to integration branch
 4. Workflow config schema - Configure workflow preferences
 
-**Total Effort:** ~800 LOC, 2-3 weeks
-**Risk:** Medium (git operations in submit command)
+**Total Effort:** ~800 LOC
 
 ---
 
