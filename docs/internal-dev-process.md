@@ -433,13 +433,21 @@ cat .runr/runs/<run_id>/timeline.jsonl | tail -20
   - M2: Submit command (cherry-pick with validation)
   - M3: Dogfooded on real Runr repo
 - ✅ Bundle and submit commands ready for production use
+- ✅ Automated tests: 8/8 passed (3 bundle, 5 submit)
+- ✅ Must-not-break invariants verified (determinism, safety, recovery)
 
 **Available now:**
-- `runr bundle <run_id>` - Generate evidence packet
+- `runr init --workflow [solo|pr|trunk]` - Initialize with workflow profile
+- `runr bundle <run_id>` - Generate deterministic evidence packet
 - `runr submit <run_id> --to <branch>` - Cherry-pick verified checkpoint
 
+**Active:**
+- 🔄 Workflow v1 operational dogfooding (10+ real uses)
+- 📝 Hardening log: `docs/workflow-v1-hardening-log.md`
+
 **Next up:**
-- ⏸️ Adopt dev-branch + bundle/submit workflow as steady state
+- Polish top 3 friction points (only after real usage reveals them)
+- Tag v1 release when dogfooding confirms stability
 
 **Backlog:**
 - 📋 allow_deps allowlist (checkpoint resilience sprint)
