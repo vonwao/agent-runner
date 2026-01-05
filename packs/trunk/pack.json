@@ -21,7 +21,17 @@
     {
       "type": "ensure_gitignore_entry",
       "path": ".gitignore",
-      "line": ".runr/"
+      "line": ".runr/runs/"
+    },
+    {
+      "type": "ensure_gitignore_entry",
+      "path": ".gitignore",
+      "line": ".runr-worktrees/"
+    },
+    {
+      "type": "ensure_gitignore_entry",
+      "path": ".gitignore",
+      "line": ".runr/orchestrations/"
     },
     {
       "type": "create_file_if_missing",
