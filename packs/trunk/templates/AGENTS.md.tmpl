@@ -61,28 +61,19 @@ Shows the complete change bundle with verification results.
 4. **Trust verification**: If verification passes, the change is trustable
 5. **Main is always deployable**: Never break main with unverified changes
 
-## When You MUST Dogfood (Objective Triggers)
+## Integration Safety Rules
 
-Use the dogfood wrapper for any change touching:
+**When to use wrapper vs manual:**
+- **Wrapper (preferred):** If your project has a submit wrapper script, use it for automated safety checks
+- **Manual (escape hatch):** Use `runr submit` directly for quick iterations or when no wrapper exists
 
-- `src/commands/*` (any command implementation)
-- Git state mutations (submit/resume/checkpoint/doctor)
-- `.runr/` layout, config, or schema changes
-- Timeline events (any code writing to timeline.jsonl)
+**If any invariant breaks during submit:**
+- Stop immediately
+- Add regression test to prevent recurrence
+- Fix the invariant violation before continuing
 
-**This is how we ship. No exceptions unless you're explicitly doing a spike.**
-
-## Do / Don't
-
-**DO:**
-- `./scripts/test-gate-cases.sh` once per week (or before tagging)
-- `./scripts/dogfood-submit.sh <run_id> --to main` for every verified run
-- Log friction if it costs >2 minutes OR happens twice (see `docs/workflow-v1-hardening-log.md`)
-
-**DON'T:**
-- Use `--push` during week 1 dogfooding (Git owns push - Option B locked)
-- Ship without hitting the release gate checklist
-- Skip the wrapper and run `runr submit` manually (use escape hatch sparingly)
+**Optional friction logging:**
+- If something costs >2 minutes or happens twice, consider logging it for team discussion
 
 ## Project Structure
 

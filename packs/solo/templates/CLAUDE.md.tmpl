@@ -7,9 +7,11 @@ This project uses Runr with Claude Code for agent tasks.
 1. Ensure Claude Code is installed and configured
 2. Create tasks in `.runr/tasks/`
 3. Run: `runr run --task .runr/tasks/your-task.md --worktree`
-4. Submit: `./scripts/dogfood-submit.sh <run_id> --to {{integration_branch}}`
+4. Submit: `runr submit <run_id> --to {{integration_branch}}`
 
 **Runr-native workflow is the happy path.** Manual cherry-pick is the escape hatch only.
+
+**Tip:** If your project has a submit wrapper (e.g., `./scripts/submit-wrapper.sh`), use that instead for automated safety checks.
 
 ## How Runr Works with Claude
 
@@ -55,14 +57,14 @@ These invariants are enforced by wrappers:
 runr bundle <run_id> --output /tmp/bundle-<run_id>.md
 ```
 
-**Dogfood submit:**
+**Submit to integration branch:**
 ```bash
-./scripts/dogfood-submit.sh <run_id> --to {{integration_branch}}
+runr submit <run_id> --to {{integration_branch}}
 ```
 
-**Gate case testing:**
+**Dry-run first (recommended):**
 ```bash
-./scripts/test-gate-cases.sh
+runr submit <run_id> --to {{integration_branch}} --dry-run
 ```
 
 ## What To Do When Things Go Wrong
@@ -79,8 +81,8 @@ runr bundle <run_id> --output /tmp/bundle-<run_id>.md
 
 **Any P0 violation:**
 - Stop immediately
-- Add regression test to `tests/commands/submit.test.ts` or `bundle.test.ts`
-- Report in `docs/workflow-v1-hardening-log.md`
+- Add regression test to prevent recurrence
+- Escalate to project maintainers
 
 ## Tips for Claude
 
