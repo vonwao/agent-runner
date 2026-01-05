@@ -171,6 +171,66 @@ async function checkWorkingTree(repoPath: string): Promise<{
 }
 
 /**
+ * Check if .runr/ is properly gitignored
+ * Uses git check-ignore if available, falls back to .gitignore parsing
+ */
+async function checkGitignore(repoPath: string): Promise<{
+  ok: boolean;
+  message: string;
+}> {
+  // Preferred method: use git check-ignore
+  try {
+    const result = await execa('git', ['check-ignore', '-q', '.runr/'], {
+      cwd: repoPath,
+      reject: false
+    });
+
+    // Exit code 0 means the path is ignored
+    if (result.exitCode === 0) {
+      return { ok: true, message: '.runr/ is gitignored ✓' };
+    }
+
+    // Exit code 1 means the path is not ignored
+    if (result.exitCode === 1) {
+      return {
+        ok: false,
+        message: '.runr/ is NOT gitignored - will cause dirty tree warnings\n' +
+                 '  Add ".runr/" to .gitignore or run "runr init" to update'
+      };
+    }
+  } catch {
+    // Git not available or other error, fall back to .gitignore parsing
+  }
+
+  // Fallback method: parse .gitignore file
+  const gitignorePath = path.join(repoPath, '.gitignore');
+  try {
+    const content = fs.readFileSync(gitignorePath, 'utf-8');
+    const lines = content.split('\n').map(l => l.trim());
+    const hasEntry = lines.some(line =>
+      line === '.runr/' ||
+      line === '.runr' ||
+      line.startsWith('.runr/')
+    );
+
+    if (hasEntry) {
+      return { ok: true, message: '.runr/ is gitignored ✓' };
+    } else {
+      return {
+        ok: false,
+        message: '.runr/ is NOT gitignored - will cause dirty tree warnings\n' +
+                 '  Add ".runr/" to .gitignore or run "runr init" to update'
+      };
+    }
+  } catch {
+    return {
+      ok: false,
+      message: 'No .gitignore found - create one with ".runr/" entry'
+    };
+  }
+}
+
+/**
  * Get version from package.json
  */
 function getRunrVersion(): string {
@@ -380,7 +440,15 @@ export async function doctorCommand(options: DoctorOptions): Promise<void> {
     hasErrors = true;
   }
 
-  // Check 4: Config file
+  // Check 4: .gitignore
+  const gitignoreCheck = await checkGitignore(repoPath);
+  if (gitignoreCheck.ok) {
+    console.log(gitignoreCheck.message);
+  } else {
+    console.log(`⚠ ${gitignoreCheck.message}`);
+  }
+
+  // Check 5: Config file
   const configCheck = checkConfig(repoPath, options.config);
   if (configCheck.found) {
     if (configCheck.valid) {
@@ -393,7 +461,7 @@ export async function doctorCommand(options: DoctorOptions): Promise<void> {
     console.log('Config: no config file (using defaults)');
   }
 
-  // Check 5: .runr/ directory
+  // Check 6: .runr/ directory
   const dirCheck = await checkRunrDirectory(repoPath);
   if (dirCheck.exists) {
     if (dirCheck.writable) {
@@ -407,7 +475,7 @@ export async function doctorCommand(options: DoctorOptions): Promise<void> {
     console.log('.runr/ directory: not yet created');
   }
 
-  // Check 6: Worktrees
+  // Check 7: Worktrees
   const worktreeCheck = await checkWorktrees(repoPath);
   if (worktreeCheck.worktreesUsed) {
     if (worktreeCheck.ok) {

@@ -78,7 +78,7 @@ interface ResumePlan {
   lastCheckpointMilestoneIndex: number; // -1 if none
   resumeFromMilestoneIndex: number;     // usually last+1
   remainingMilestones: number;
-  checkpointSource: 'git_log_run_specific' | 'git_log_legacy' | 'none';
+  checkpointSource: 'sidecar' | 'git_log_run_specific' | 'git_log_legacy' | 'none';
   delta: {
     diffstat?: string;
     lockfilesChanged: boolean;
@@ -149,11 +149,28 @@ export async function _buildResumePlan(options: {
 }): Promise<ResumePlan> {
   const { state, repoPath, runStore, config } = options;
 
-  // Find last checkpoint via git log
-  // Try run-specific pattern first, then fallback to legacy
+  // Find last checkpoint
+  // PRIORITY 1: Try sidecar metadata first (fast, reliable)
+  // PRIORITY 2: Fallback to git log parsing (legacy support)
   let checkpointSha: string | null = null;
   let lastCheckpointMilestoneIndex = -1;
-  let checkpointSource: 'git_log_run_specific' | 'git_log_legacy' | 'none' = 'none';
+  let checkpointSource: 'sidecar' | 'git_log_run_specific' | 'git_log_legacy' | 'none' = 'none';
+
+  // Try sidecar metadata first
+  try {
+    const { findLatestCheckpointBySidecar } = await import('../store/checkpoint-metadata.js');
+    const sidecarResult = await findLatestCheckpointBySidecar(repoPath, state.run_id);
+    if (sidecarResult) {
+      checkpointSha = sidecarResult.sha;
+      lastCheckpointMilestoneIndex = sidecarResult.milestoneIndex;
+      checkpointSource = 'sidecar';
+    }
+  } catch (error) {
+    // Sidecar read failed, fall through to git log parsing
+  }
+
+  // Fallback to git log if sidecar not found
+  if (checkpointSha === null) {
 
   // First: try new format with run_id
   try {
@@ -219,6 +236,20 @@ export async function _buildResumePlan(options: {
     } catch {
       // No checkpoint found at all, start from beginning
     }
+  }
+  } // End of git log fallback
+
+  // Emit event showing which checkpoint source was selected
+  if (checkpointSha) {
+    runStore.appendEvent({
+      type: 'resume_checkpoint_selected',
+      source: 'resume',
+      payload: {
+        source: checkpointSource,
+        sha: checkpointSha,
+        milestone_index: lastCheckpointMilestoneIndex
+      }
+    });
   }
 
   const resumeFromMilestoneIndex = lastCheckpointMilestoneIndex + 1;

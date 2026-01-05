@@ -1,4 +1,5 @@
 import fs from 'node:fs';
+import fsPromises from 'node:fs/promises';
 import path from 'node:path';
 import { AgentConfig } from '../config/schema.js';
 
@@ -359,6 +360,35 @@ Update documentation for [topic/module]
 }
 
 /**
+ * Ensure .gitignore contains the specified entry.
+ * Returns true if entry was added, false if already present.
+ */
+async function ensureGitignoreEntry(repoPath: string, entry: string): Promise<boolean> {
+  const gitignorePath = path.join(repoPath, '.gitignore');
+
+  let content = '';
+  try {
+    content = await fsPromises.readFile(gitignorePath, 'utf-8');
+  } catch {
+    // No .gitignore exists, will create one
+  }
+
+  // Check if entry already exists
+  const lines = content.split('\n');
+  const hasEntry = lines.some(line => line.trim() === entry.trim());
+
+  if (!hasEntry) {
+    const newContent = content.endsWith('\n') || content === ''
+      ? `${content}${entry}\n`
+      : `${content}\n${entry}\n`;
+    await fsPromises.writeFile(gitignorePath, newContent);
+    return true; // Added
+  }
+
+  return false; // Already present
+}
+
+/**
  * Initialize Runr configuration for a repository
  */
 export async function initCommand(options: InitOptions): Promise<void> {
@@ -398,6 +428,14 @@ export async function initCommand(options: InitOptions): Promise<void> {
 
   // Create .runr directory
   fs.mkdirSync(runrDir, { recursive: true });
+
+  // Ensure .runr/ is gitignored
+  const added = await ensureGitignoreEntry(repoPath, '.runr/');
+  if (added) {
+    console.log('✅ Added .runr/ to .gitignore');
+  } else {
+    console.log('✓ .runr/ already in .gitignore');
+  }
 
   // Write config
   fs.writeFileSync(configPath, JSON.stringify(config, null, 2) + '\n');

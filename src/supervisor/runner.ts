@@ -1591,10 +1591,40 @@ async function handleCheckpoint(state: RunState, options: SupervisorOptions): Pr
   }
 
   const shaResult = await git(['rev-parse', 'HEAD'], options.repoPath);
+  const sha = shaResult.stdout.trim();
+
+  // Write checkpoint metadata sidecar (best-effort)
+  let sidecarWritten = false;
+  try {
+    const { writeCheckpointMetadata } = await import('../store/checkpoint-metadata.js');
+    await writeCheckpointMetadata({
+      repoPath: options.repoPath,
+      sha,
+      runId: state.run_id,
+      milestoneIndex: state.milestone_index,
+      milestone: state.milestones[state.milestone_index],
+      // Optional fields from last_verification_evidence (safe access)
+      tier: state.last_verification_evidence?.tiers_run?.[0],
+      verificationCommands: state.last_verification_evidence?.commands_run?.map(c => c.command) ?? undefined
+    });
+    sidecarWritten = true;
+  } catch (error) {
+    // Best-effort: don't fail run if sidecar write fails
+    options.runStore.appendEvent({
+      type: 'checkpoint_sidecar_write_failed',
+      source: 'supervisor',
+      payload: {
+        sha,
+        path: path.join(options.repoPath, '.runr', 'checkpoints', `${sha}.json`),
+        error: String(error)
+      }
+    });
+  }
+
   const nextIndex = state.milestone_index + 1;
   const updated: RunState = {
     ...state,
-    checkpoint_commit_sha: shaResult.stdout.trim(),
+    checkpoint_commit_sha: sha,
     milestone_index: nextIndex,
     milestone_retries: 0,
     last_verify_failure: undefined,
@@ -1607,7 +1637,8 @@ async function handleCheckpoint(state: RunState, options: SupervisorOptions): Pr
     source: 'supervisor',
     payload: {
       commit: updated.checkpoint_commit_sha,
-      milestone_index: state.milestone_index
+      milestone_index: state.milestone_index,
+      sidecar_written: sidecarWritten
     }
   });
 
