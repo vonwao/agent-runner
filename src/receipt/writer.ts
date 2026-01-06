@@ -35,6 +35,15 @@ export interface ReceiptJson {
   files_changed: number;
   lines_added: number;
   lines_deleted: number;
+  /** Tracks which artifacts were written - never points to missing files */
+  artifacts_written: {
+    diff_patch: boolean;
+    diff_patch_gz: boolean;
+    diffstat: boolean;
+    files: boolean;
+    transcript_log: boolean;
+    transcript_meta: boolean;
+  };
 }
 
 export interface WriteReceiptOptions {
@@ -86,34 +95,33 @@ export async function writeReceipt(options: WriteReceiptOptions): Promise<WriteR
       totalLines > COMPRESSION_LINES ||
       diffStats.files.length > COMPRESSION_FILES;
 
+    // Track which artifacts we write
+    const artifactsWritten = {
+      diff_patch: false,
+      diff_patch_gz: false,
+      diffstat: false,
+      files: false,
+      transcript_log: false,
+      transcript_meta: false
+    };
+
     // Write diff.patch or diff.patch.gz
     let patchPath: string;
     if (shouldCompress) {
       patchPath = path.join(runStore.path, 'diff.patch.gz');
       const compressed = zlib.gzipSync(Buffer.from(patchContent, 'utf-8'));
       fs.writeFileSync(patchPath, compressed);
+      artifactsWritten.diff_patch_gz = true;
     } else {
       patchPath = path.join(runStore.path, 'diff.patch');
       fs.writeFileSync(patchPath, patchContent);
+      artifactsWritten.diff_patch = true;
     }
-
-    // Write receipt.json
-    const receipt: ReceiptJson = {
-      base_sha: baseSha,
-      checkpoint_sha: checkpointSha,
-      verification_tier: verificationTier,
-      terminal_state: terminalState,
-      files_changed: diffStats.files.length,
-      lines_added: diffStats.linesAdded,
-      lines_deleted: diffStats.linesDeleted
-    };
-
-    const receiptPath = path.join(runStore.path, 'receipt.json');
-    fs.writeFileSync(receiptPath, JSON.stringify(receipt, null, 2));
 
     // Write diffstat.txt (always uncompressed)
     const diffstatPath = path.join(runStore.path, 'diffstat.txt');
     fs.writeFileSync(diffstatPath, diffStats.diffstat);
+    artifactsWritten.diffstat = true;
 
     // Write files.txt (one file per line, capped at 500)
     const filesPath = path.join(runStore.path, 'files.txt');
@@ -122,10 +130,15 @@ export async function writeReceipt(options: WriteReceiptOptions): Promise<WriteR
       filesContent += `\n...truncated, ${diffStats.files.length - 500} more files`;
     }
     fs.writeFileSync(filesPath, filesContent);
+    artifactsWritten.files = true;
 
-    // Write transcript.meta.json (transcript captured by operator)
-    const transcriptMetaPath = path.join(runStore.path, 'transcript.meta.json');
-    if (!fs.existsSync(path.join(runStore.path, 'transcript.log'))) {
+    // Check for existing transcript.log
+    const transcriptLogPath = path.join(runStore.path, 'transcript.log');
+    if (fs.existsSync(transcriptLogPath)) {
+      artifactsWritten.transcript_log = true;
+    } else {
+      // Write transcript.meta.json (transcript captured by operator)
+      const transcriptMetaPath = path.join(runStore.path, 'transcript.meta.json');
       const now = new Date().toISOString();
       const transcriptMeta = {
         captured_by: 'claude_code',
@@ -136,7 +149,23 @@ export async function writeReceipt(options: WriteReceiptOptions): Promise<WriteR
         note: 'Transcript captured by operator'
       };
       fs.writeFileSync(transcriptMetaPath, JSON.stringify(transcriptMeta, null, 2));
+      artifactsWritten.transcript_meta = true;
     }
+
+    // Write receipt.json (includes artifacts_written for self-documentation)
+    const receipt: ReceiptJson = {
+      base_sha: baseSha,
+      checkpoint_sha: checkpointSha,
+      verification_tier: verificationTier,
+      terminal_state: terminalState,
+      files_changed: diffStats.files.length,
+      lines_added: diffStats.linesAdded,
+      lines_deleted: diffStats.linesDeleted,
+      artifacts_written: artifactsWritten
+    };
+
+    const receiptPath = path.join(runStore.path, 'receipt.json');
+    fs.writeFileSync(receiptPath, JSON.stringify(receipt, null, 2));
 
     return {
       receipt,

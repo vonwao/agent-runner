@@ -128,9 +128,12 @@ function parseVerificationTier(frontmatter: Record<string, unknown> | null, body
     }
   }
 
-  // Validate and enforce minimum tier0
-  if (tier === 'tier0' || tier === 'tier1' || tier === 'tier2') {
-    return tier;
+  // Normalize and validate
+  if (tier) {
+    const normalized = tier.toLowerCase();
+    if (normalized === 'tier0' || normalized === 'tier1' || normalized === 'tier2') {
+      return normalized;
+    }
   }
 
   return null; // Use config default
