@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-01-06
+
+**Meta-Agent UX Sprint** — Smoother onboarding and smarter defaults.
+
+### Added
+
+- **Runr Meta-Agent**: Built-in `runr meta` helper for agent workflow guidance
+- **Claude Auto-Setup**: `--with-claude` flag wires CLAUDE.md scaffolding during init
+- **Claude Templates**: `.claude/` template library for repeatable agent prompts
+- **Enhanced Doctor**: Deeper diagnostics and clearer remediation in `runr doctor`
+
 ## [0.5.0] - 2026-01-05
 
 **Solo Workflow** — Effortless dev→main checkpoints with automated safety.
@@ -297,7 +308,8 @@ Initial stable release with full dual-LLM orchestration and autonomy features.
 - Worktree strategy documentation
 - CLI reference
 
-[Unreleased]: https://github.com/vonwao/runr/compare/v0.5.0...HEAD
+[Unreleased]: https://github.com/vonwao/runr/compare/v0.6.0...HEAD
+[0.6.0]: https://github.com/vonwao/runr/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/vonwao/runr/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/vonwao/runr/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/vonwao/runr/compare/v0.2.2...v0.3.0
