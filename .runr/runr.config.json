@@ -7,7 +7,12 @@
     "allowlist": [
       "src/**",
       "tests/**",
-      "test/**"
+      "test/**",
+      "CHANGELOG.md",
+      "README.md",
+      "docs/**",
+      "packs/**",
+      ".runr/tasks/**"
     ],
     "denylist": [
       "node_modules/**",
