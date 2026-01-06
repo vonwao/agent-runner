@@ -3,16 +3,29 @@
  *
  * Writes:
  * - receipt.json: baseline + checkpoint metadata
- * - diffstat.txt: git diff --stat output
+ * - diff.patch (or diff.patch.gz if compressed)
+ * - diffstat.txt: git diff --stat output (always uncompressed)
  * - files.txt: list of changed files, one per line
+ * - transcript.meta.json: pointer when transcript not captured
+ *
+ * Compression triggers (any one):
+ * - Diff size > 50KB
+ * - Changed lines > 2000
+ * - Changed files > 100
  *
  * All operations are best-effort and never crash the run.
  */
 
 import fs from 'node:fs';
 import path from 'node:path';
+import zlib from 'node:zlib';
 import { execSync } from 'node:child_process';
 import type { RunStore } from '../store/run-store.js';
+
+// Compression thresholds per spec
+const COMPRESSION_SIZE_BYTES = 50 * 1024; // 50KB
+const COMPRESSION_LINES = 2000;
+const COMPRESSION_FILES = 100;
 
 export interface ReceiptJson {
   base_sha: string | null;
@@ -31,30 +44,58 @@ export interface WriteReceiptOptions {
   checkpointSha: string | null;
   verificationTier: string | null;
   terminalState: 'complete' | 'stopped' | 'failed';
+  stopReason?: string;
+  runId: string;
+}
+
+export interface WriteReceiptResult {
+  receipt: ReceiptJson;
+  patchPath: string; // diff.patch or diff.patch.gz
+  compressed: boolean;
 }
 
 /**
  * Write receipt artifacts at terminal state.
  * Best-effort: logs warnings but never throws.
+ * Returns result for console output, or null on failure.
  */
-export async function writeReceipt(options: WriteReceiptOptions): Promise<void> {
-  const { runStore, repoPath, baseSha, checkpointSha, verificationTier, terminalState } = options;
+export async function writeReceipt(options: WriteReceiptOptions): Promise<WriteReceiptResult | null> {
+  const { runStore, repoPath, baseSha, checkpointSha, verificationTier, terminalState, runId } = options;
 
   // If no base_sha, we can't compute diffs
   if (!baseSha) {
     console.warn('Warning: Cannot generate receipt - base_sha missing');
-    return;
+    return null;
   }
 
   const headSha = checkpointSha || await getCurrentHead(repoPath);
   if (!headSha) {
     console.warn('Warning: Cannot generate receipt - unable to determine HEAD');
-    return;
+    return null;
   }
 
   try {
-    // Get diff stats
+    // Get diff stats and patch
     const diffStats = getDiffStats(repoPath, baseSha, headSha);
+    const patchContent = generatePatch(repoPath, baseSha, headSha);
+
+    // Determine if compression needed
+    const totalLines = diffStats.linesAdded + diffStats.linesDeleted;
+    const shouldCompress =
+      patchContent.length > COMPRESSION_SIZE_BYTES ||
+      totalLines > COMPRESSION_LINES ||
+      diffStats.files.length > COMPRESSION_FILES;
+
+    // Write diff.patch or diff.patch.gz
+    let patchPath: string;
+    if (shouldCompress) {
+      patchPath = path.join(runStore.path, 'diff.patch.gz');
+      const compressed = zlib.gzipSync(Buffer.from(patchContent, 'utf-8'));
+      fs.writeFileSync(patchPath, compressed);
+    } else {
+      patchPath = path.join(runStore.path, 'diff.patch');
+      fs.writeFileSync(patchPath, patchContent);
+    }
 
     // Write receipt.json
     const receipt: ReceiptJson = {
@@ -70,7 +111,7 @@ export async function writeReceipt(options: WriteReceiptOptions): Promise<void> 
     const receiptPath = path.join(runStore.path, 'receipt.json');
     fs.writeFileSync(receiptPath, JSON.stringify(receipt, null, 2));
 
-    // Write diffstat.txt
+    // Write diffstat.txt (always uncompressed)
     const diffstatPath = path.join(runStore.path, 'diffstat.txt');
     fs.writeFileSync(diffstatPath, diffStats.diffstat);
 
@@ -82,8 +123,30 @@ export async function writeReceipt(options: WriteReceiptOptions): Promise<void> 
     }
     fs.writeFileSync(filesPath, filesContent);
 
+    // Write transcript.meta.json (transcript captured by operator)
+    const transcriptMetaPath = path.join(runStore.path, 'transcript.meta.json');
+    if (!fs.existsSync(path.join(runStore.path, 'transcript.log'))) {
+      const now = new Date().toISOString();
+      const transcriptMeta = {
+        captured_by: 'claude_code',
+        session_id: runId,
+        started_at: now, // Best-effort, we don't have exact start time
+        ended_at: now,
+        path_hint: null,
+        note: 'Transcript captured by operator'
+      };
+      fs.writeFileSync(transcriptMetaPath, JSON.stringify(transcriptMeta, null, 2));
+    }
+
+    return {
+      receipt,
+      patchPath: shouldCompress ? 'diff.patch.gz' : 'diff.patch',
+      compressed: shouldCompress
+    };
+
   } catch (err) {
     console.warn(`Warning: Failed to write receipt: ${(err as Error).message}`);
+    return null;
   }
 }
 
@@ -144,6 +207,23 @@ function getDiffStats(repoPath: string, baseSha: string, headSha: string): DiffS
 }
 
 /**
+ * Generate patch content using robust git diff flags.
+ * Per spec: --patch --binary --find-renames
+ */
+function generatePatch(repoPath: string, baseSha: string, headSha: string): string {
+  try {
+    return execSync(`git diff --patch --binary --find-renames ${baseSha}..${headSha}`, {
+      cwd: repoPath,
+      encoding: 'utf-8',
+      maxBuffer: 50 * 1024 * 1024 // 50MB buffer for large diffs
+    });
+  } catch (err) {
+    console.warn(`Warning: git diff --patch failed: ${(err as Error).message}`);
+    return '';
+  }
+}
+
+/**
  * Get the current HEAD SHA.
  */
 async function getCurrentHead(repoPath: string): Promise<string | null> {
@@ -179,6 +259,91 @@ export function extractBaseSha(runStorePath: string): string | null {
   } catch {
     return null;
   }
+}
+
+/**
+ * Print Run Receipt to console.
+ * Format per spec:
+ *   Run <id> [<status>] <icon>
+ *
+ *   Changes:
+ *     <file>  +N  -N
+ *     ...up to 20 files...
+ *
+ *   Checkpoint: <sha> (verified: <tier>)  # if exists
+ *
+ *   Review:  .runr/runs/<id>/diff.patch
+ *   Submit:  runr submit <id> --to <branch> --dry-run
+ */
+export interface PrintReceiptOptions {
+  runId: string;
+  terminalState: 'complete' | 'stopped' | 'failed';
+  stopReason?: string;
+  receipt: ReceiptJson;
+  patchPath: string;
+  compressed: boolean;
+  diffstat: string;
+  integrationBranch?: string;
+}
+
+export function printRunReceipt(options: PrintReceiptOptions): void {
+  const {
+    runId,
+    terminalState,
+    stopReason,
+    receipt,
+    patchPath,
+    compressed,
+    diffstat,
+    integrationBranch = 'main'
+  } = options;
+
+  // Status icon
+  const icon = terminalState === 'complete' ? '✓' : terminalState === 'failed' ? '✗' : '⏸';
+  const statusLabel = stopReason && stopReason !== 'complete' ? `stopped: ${stopReason}` : terminalState;
+
+  console.log('');
+  console.log(`Run ${runId} [${statusLabel}] ${icon}`);
+  console.log('');
+
+  // Changes section - parse diffstat for top 20 files
+  if (diffstat && diffstat.trim()) {
+    console.log('Changes:');
+    const lines = diffstat.split('\n').filter(line => line.includes('|'));
+    const displayLines = lines.slice(0, 20);
+    for (const line of displayLines) {
+      console.log(`  ${line.trim()}`);
+    }
+    if (lines.length > 20) {
+      console.log(`  ...${lines.length - 20} more files`);
+    }
+    console.log('');
+  }
+
+  // Checkpoint section
+  if (receipt.checkpoint_sha) {
+    const shortSha = receipt.checkpoint_sha.slice(0, 7);
+    const verifiedNote = receipt.verification_tier
+      ? ` (verified: ${receipt.verification_tier})`
+      : '';
+    console.log(`Checkpoint: ${shortSha}${verifiedNote}`);
+    console.log('');
+  }
+
+  // Next actions
+  const runDir = `.runr/runs/${runId}`;
+  const patchFile = compressed ? 'diff.patch.gz (large changeset)' : patchPath;
+  console.log(`Review:  ${runDir}/${patchFile}`);
+
+  // Context-aware next action
+  if (terminalState === 'complete') {
+    console.log(`Submit:  runr submit ${runId} --to ${integrationBranch} --dry-run`);
+  } else if (terminalState === 'stopped') {
+    console.log(`Resume:  runr resume ${runId}`);
+  } else {
+    console.log(`Bundle:  runr bundle ${runId}`);
+  }
+  console.log('');
 }
 
 /**

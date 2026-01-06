@@ -30,7 +30,7 @@ import { runVerification } from '../verification/engine.js';
 import { stopRun, updatePhase, prepareForResume } from './state-machine.js';
 import { buildJournal } from '../journal/builder.js';
 import { renderJournal } from '../journal/renderer.js';
-import { writeReceipt, extractBaseSha, deriveTerminalState } from '../receipt/writer.js';
+import { writeReceipt, extractBaseSha, deriveTerminalState, printRunReceipt } from '../receipt/writer.js';
 import {
   getActiveRuns,
   checkFileCollisions,
@@ -775,7 +775,7 @@ async function runSupervisorOnce(options: SupervisorOptions): Promise<void> {
       console.warn(`Warning: Failed to generate journal: ${(err as Error).message}`);
     }
 
-    // Auto-write receipt artifacts at terminal state
+    // Auto-write receipt artifacts at terminal state and print Run Receipt
     try {
       const finalState = options.runStore.readState();
       if (finalState.phase === 'STOPPED') {
@@ -783,14 +783,39 @@ async function runSupervisorOnce(options: SupervisorOptions): Promise<void> {
         const terminalState = deriveTerminalState(finalState.stop_reason);
         const verificationTier = finalState.last_verification_evidence?.tiers_run?.[0] ?? null;
 
-        await writeReceipt({
+        const result = await writeReceipt({
           runStore: options.runStore,
           repoPath: options.repoPath,
           baseSha,
           checkpointSha: finalState.checkpoint_commit_sha ?? null,
           verificationTier,
-          terminalState
+          terminalState,
+          stopReason: finalState.stop_reason,
+          runId: finalState.run_id
         });
+
+        // Print Run Receipt to console
+        if (result) {
+          // Read diffstat for console output
+          const diffstatPath = path.join(options.runStore.path, 'diffstat.txt');
+          const diffstat = fs.existsSync(diffstatPath)
+            ? fs.readFileSync(diffstatPath, 'utf-8')
+            : '';
+
+          // Get integration branch from config
+          const integrationBranch = options.config?.workflow?.integration_branch ?? 'main';
+
+          printRunReceipt({
+            runId: finalState.run_id,
+            terminalState,
+            stopReason: finalState.stop_reason,
+            receipt: result.receipt,
+            patchPath: result.patchPath,
+            compressed: result.compressed,
+            diffstat,
+            integrationBranch
+          });
+        }
       }
     } catch (err) {
       // Never crash on receipt generation failure

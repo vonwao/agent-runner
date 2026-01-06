@@ -11,6 +11,10 @@ export interface TaskMetadata {
   owns_raw: string[];
   owns_normalized: string[];
   frontmatter: Record<string, unknown> | null;
+  /** Task-local additions to scope allowlist (additive only) */
+  allowlist_add: string[];
+  /** Task-local verification tier override */
+  verification_tier: 'tier0' | 'tier1' | 'tier2' | null;
 }
 
 function hasFrontmatter(raw: string): boolean {
@@ -59,6 +63,79 @@ function coerceOwns(value: unknown, taskPath: string): string[] {
   throw new Error(`Invalid owns entry in ${taskPath}: must be string or string[]`);
 }
 
+/**
+ * Parse allowlist_add from frontmatter or body.
+ * Accepts both frontmatter field and markdown section.
+ */
+function parseAllowlistAdd(frontmatter: Record<string, unknown> | null, body: string): string[] {
+  // Check frontmatter first
+  if (frontmatter?.allowlist_add) {
+    const value = frontmatter.allowlist_add;
+    if (Array.isArray(value)) {
+      return value.filter((item): item is string => typeof item === 'string');
+    }
+    if (typeof value === 'string') {
+      return [value];
+    }
+  }
+
+  // Check for Scope section in markdown body (YAML-like format)
+  // Format:
+  // ## Scope
+  // allowlist_add:
+  //   - pattern1
+  //   - pattern2
+  const scopeMatch = body.match(/##\s*Scope\s*\n([\s\S]*?)(?=\n##|\n$|$)/i);
+  if (scopeMatch) {
+    const scopeContent = scopeMatch[1];
+    const allowlistMatch = scopeContent.match(/allowlist_add:\s*\n((?:\s*-\s*.+\n?)+)/);
+    if (allowlistMatch) {
+      const items = allowlistMatch[1].match(/-\s*(.+)/g);
+      if (items) {
+        return items.map(item => item.replace(/^-\s*/, '').trim());
+      }
+    }
+  }
+
+  return [];
+}
+
+/**
+ * Parse verification tier from frontmatter or body.
+ * Enforces minimum tier0.
+ */
+function parseVerificationTier(frontmatter: Record<string, unknown> | null, body: string): 'tier0' | 'tier1' | 'tier2' | null {
+  let tier: string | null = null;
+
+  // Check frontmatter first
+  if (frontmatter?.verification && typeof frontmatter.verification === 'object') {
+    const verification = frontmatter.verification as Record<string, unknown>;
+    if (verification.tier) {
+      tier = String(verification.tier);
+    }
+  } else if (frontmatter?.tier) {
+    tier = String(frontmatter.tier);
+  }
+
+  // Check for Verification section in markdown body
+  if (!tier) {
+    const verifyMatch = body.match(/##\s*Verification\s*\n([\s\S]*?)(?=\n##|\n$|$)/i);
+    if (verifyMatch) {
+      const tierMatch = verifyMatch[1].match(/tier:\s*(tier[012])/i);
+      if (tierMatch) {
+        tier = tierMatch[1].toLowerCase();
+      }
+    }
+  }
+
+  // Validate and enforce minimum tier0
+  if (tier === 'tier0' || tier === 'tier1' || tier === 'tier2') {
+    return tier;
+  }
+
+  return null; // Use config default
+}
+
 export function loadTaskMetadata(taskPath: string): TaskMetadata {
   const raw = fs.readFileSync(taskPath, 'utf-8');
   const { frontmatterText, body } = splitFrontmatter(raw);
@@ -83,12 +160,16 @@ export function loadTaskMetadata(taskPath: string): TaskMetadata {
   }
 
   const ownsNormalized = normalizeOwnsPatterns(ownsRaw);
+  const allowlistAdd = parseAllowlistAdd(frontmatter, body);
+  const verificationTier = parseVerificationTier(frontmatter, body);
 
   return {
     raw,
     body,
     owns_raw: ownsRaw,
     owns_normalized: ownsNormalized,
-    frontmatter
+    frontmatter,
+    allowlist_add: allowlistAdd,
+    verification_tier: verificationTier
   };
 }

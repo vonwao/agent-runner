@@ -269,6 +269,17 @@ export async function runCommand(options: RunOptions): Promise<void> {
   const ownsRaw = taskMetadata.owns_raw;
   const ownsNormalized = taskMetadata.owns_normalized;
 
+  // Merge task-local allowlist_add with config allowlist (additive only)
+  const effectiveAllowlist = [
+    ...config.scope.allowlist,
+    ...taskMetadata.allowlist_add
+  ];
+
+  // Log if task has local scope additions
+  if (taskMetadata.allowlist_add.length > 0 && !options.json) {
+    console.log(`Task-local scope additions: ${taskMetadata.allowlist_add.join(', ')}`);
+  }
+
   // Auto-inject git excludes for agent artifacts BEFORE any git status checks.
   // This prevents .agent/ and .agent-worktrees/ from appearing as dirty on fresh repos.
   ensureRepoInfoExclude(repoPath, [
@@ -311,7 +322,7 @@ export async function runCommand(options: RunOptions): Promise<void> {
   if (!options.forceParallel) {
     const activeRuns = getActiveRuns(repoPath);
     if (activeRuns.length > 0) {
-      const overlaps = checkAllowlistOverlaps(config.scope.allowlist, activeRuns);
+      const overlaps = checkAllowlistOverlaps(effectiveAllowlist, activeRuns);
       if (overlaps.length > 0) {
         console.warn('');
         console.warn(formatAllowlistWarning(overlaps));
@@ -323,7 +334,7 @@ export async function runCommand(options: RunOptions): Promise<void> {
   let freshTargetRoot: string | null = null;
   if (options.freshTarget) {
     try {
-      freshTargetRoot = await freshenTargetRoot(repoPath, config.scope.allowlist);
+      freshTargetRoot = await freshenTargetRoot(repoPath, effectiveAllowlist);
       console.log(`Fresh target: cleaned ${freshTargetRoot}`);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unknown error';
@@ -507,7 +518,7 @@ export async function runCommand(options: RunOptions): Promise<void> {
           raw: ownsRaw,
           normalized: ownsNormalized
         },
-        allowlist: config.scope.allowlist,
+        allowlist: effectiveAllowlist,
         denylist: config.scope.denylist
       });
       state.current_branch = preflight.repo_context.current_branch;
@@ -571,7 +582,7 @@ export async function runCommand(options: RunOptions): Promise<void> {
       raw: ownsRaw,
       normalized: ownsNormalized
     },
-    allowlist: config.scope.allowlist,
+    allowlist: effectiveAllowlist,
     denylist: config.scope.denylist
   });
   state.current_branch = preflight.repo_context.current_branch;
