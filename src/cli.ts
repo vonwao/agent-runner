@@ -23,6 +23,7 @@ import { journalCommand, noteCommand, openCommand } from './commands/journal.js'
 import { bundleCommand } from './commands/bundle.js';
 import { submitCommand } from './commands/submit.js';
 import { metaCommand } from './commands/meta.js';
+import { interveneCommand } from './commands/intervene.js';
 import { CollisionPolicy } from './orchestrator/types.js';
 
 const program = new Command();
@@ -673,6 +674,27 @@ program
       tool: options.tool as 'auto' | 'claude' | 'codex',
       allowDirty: options.allowDirty,
       interactive: options.interactive
+    });
+  });
+
+// intervene - Record manual work outside Runr flow
+program
+  .command('intervene')
+  .description('Record manual work done outside Runr flow (creates intervention receipt)')
+  .argument('<runId>', 'Run ID (or "latest")')
+  .requiredOption('--reason <type>', 'Why intervention was needed: review_loop, stalled_timeout, verification_failed, scope_violation, manual_fix, other')
+  .requiredOption('--note <text>', 'Description of what was done')
+  .option('--cmd <command>', 'Command to run and capture (can be repeated)', (val, prev: string[]) => [...prev, val], [])
+  .option('--repo <path>', 'Target repo path', '.')
+  .option('--json', 'Output JSON', false)
+  .action(async (runId: string, options) => {
+    await interveneCommand({
+      repo: options.repo,
+      runId,
+      reason: options.reason,
+      note: options.note,
+      commands: options.cmd,
+      json: options.json
     });
   });
 
