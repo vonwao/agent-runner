@@ -89,10 +89,22 @@ async function checkWorker(
 
 /**
  * Run worker health checks (used by run command)
+ * Only checks workers that are actually used by the phases config.
  */
 export async function runDoctorChecks(config: AgentConfig, repoPath: string): Promise<WorkerCheck[]> {
+  // Get unique workers that are actually used by phases
+  const usedWorkers = new Set<string>([
+    config.phases.plan,
+    config.phases.implement,
+    config.phases.review
+  ]);
+
   const checks: WorkerCheck[] = [];
   for (const [name, workerConfig] of Object.entries(config.workers)) {
+    // Skip workers not used by any phase
+    if (!usedWorkers.has(name)) {
+      continue;
+    }
     const check = await checkWorker(name, workerConfig as WorkerConfig, repoPath);
     checks.push(check);
   }
