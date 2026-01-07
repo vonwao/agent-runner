@@ -17,6 +17,9 @@ When conflict occurs, output exactly:
 ```
 Cherry-pick conflict detected.
 
+Checkpoint: abc1234def567890
+Target:     dev
+
 Conflicted files:
   - src/components/Button.tsx
   - src/utils/helpers.ts
@@ -24,26 +27,22 @@ Conflicted files:
 Recovery state:
   ✓ Branch restored to: dev
   ✓ Working tree is clean
-  ✓ Checkpoint preserved at: abc1234
 
-Manual recovery options:
+Manual recovery:
 
-  Option 1: Cherry-pick manually
-    git checkout dev
-    git cherry-pick abc1234
-    # Resolve conflicts
-    git add .
-    git cherry-pick --continue
+  git checkout dev
+  git cherry-pick abc1234def567890
+  # Resolve conflicts in: src/components/Button.tsx, src/utils/helpers.ts
+  git add .
+  git cherry-pick --continue
 
-  Option 2: Rebase checkpoint
-    git checkout abc1234
-    git rebase dev
-    # Resolve conflicts
-    git checkout dev
-    git merge --ff-only <rebased-sha>
-
-If this is a feature addition, consider updating CHANGELOG.md.
+If this adds new features, consider updating CHANGELOG.md.
 ```
+
+**Key requirements:**
+- Always print exact checkpoint SHA (full, not abbreviated)
+- Always print exact target branch name
+- Recovery commands must be copy-paste ready with actual values
 
 ### 2. Timeline Event Enhancement
 The `submit_conflict` timeline event should include:

@@ -1,87 +1,89 @@
-# 01: Stop Workflow UX - Receipts as Operator Dashboard
+# 01: Stop Workflow UX - Clear Next Steps
 
 ## Goal
-Make the happy path obvious when runs STOP, so the meta-agent naturally does the right thing.
+When a run stops, the user knows exactly what to do. Three commands max.
 
 ## Problem
-When a run stops, the user/agent sees diagnostic info but no clear "what now" action. This leads to:
-- Audit gaps (manual fixes without intervention receipts)
-- Review loops (wrong recovery path chosen)
-- Confusion about Flow vs Ledger expectations
+STOP output shows diagnostics but no clear action. Users get stuck choosing between resume, intervene, or audit.
 
 ## Requirements
 
-### 1. Add "What Now" Footer to Stop Output
-When a run stops (any reason), append a clear recommended path based on mode:
+### 1. Consistent STOP Footer
 
-**Flow Mode:**
-```
-┌─────────────────────────────────────────────────────────────┐
-│ WHAT NOW (Flow mode)                                         │
-├─────────────────────────────────────────────────────────────┤
-│ Fix fast:                                                    │
-│   runr intervene <run_id> --reason <stop_reason> \          │
-│     --note "what you fixed" --commit "Fix: description"     │
-│                                                              │
-│ Or resume after fixing:                                      │
-│   runr resume <run_id>                                       │
-└─────────────────────────────────────────────────────────────┘
-```
+When any run stops, append a compact "Next Steps" block:
 
-**Ledger Mode:**
 ```
-┌─────────────────────────────────────────────────────────────┐
-│ WHAT NOW (Ledger mode)                                       │
-├─────────────────────────────────────────────────────────────┤
-│ Preferred: Edit task file, then:                            │
-│   runr resume <run_id>                                       │
-│                                                              │
-│ If manual fix required:                                      │
-│   runr intervene <run_id> --reason <stop_reason> \          │
-│     --note "what you fixed" --commit "Fix: description"     │
-└─────────────────────────────────────────────────────────────┘
+─────────────────────────────────────────────────
+STOPPED: review_loop_detected
+
+Last checkpoint: abc1234 (milestone 2/3)
+Unmet: type errors (npm run typecheck), test coverage
+
+Next steps:
+  runr resume 20260107120000
+  runr intervene 20260107120000 --reason review_loop --note "..."
+  runr audit --run 20260107120000
+─────────────────────────────────────────────────
 ```
 
-### 2. Integrate into Existing Stop Handlers
-Locations to add footer:
-- `src/supervisor/runner.ts` - when run transitions to terminal state
-- `src/commands/status.ts` - when showing stopped run status
-- `src/cli.ts` - after run command completes with stop
+### 2. Three Commands Only
 
-### 3. Make Footer Reason-Aware
-The footer should adapt based on stop reason:
-- `review_loop_detected`: suggest specific checks that failed
-- `verification_failed`: show failing command
-- `scope_violation`: show files and suggest scope adjustment
-- `stalled_timeout`: suggest resume or manual completion
+Always show exactly three options:
+1. `runr resume <id>` - try again
+2. `runr intervene <id> --reason <stop_reason> --note "..."` - record manual fix
+3. `runr audit --run <id>` - see what happened
 
-### 4. Add "Copy-Paste Ready" Command
-Include the actual run_id in the suggested commands (not `<run_id>`).
+### 3. Reason-Aware Context Line
 
-### 5. Respect --json Flag
-In JSON output mode, include the suggested commands as structured data:
+Add one line of context based on stop reason:
+
+| Reason | Context Line |
+|--------|--------------|
+| `review_loop_detected` | "Unmet: <first 2 checks from review>" |
+| `verification_failed` | "Failed: <command that failed>" |
+| `scope_violation` | "Files: <first 2 violating files>" |
+| `stalled_timeout` | "Stalled at: <phase>" |
+| `guard_fail` | "Guard: <guard type>" |
+| other | (no context line) |
+
+### 4. Locations to Add Footer
+
+- `src/supervisor/runner.ts` - when transitioning to terminal STOPPED state
+- `src/commands/status.ts` - when showing a stopped run
+- `src/commands/run.ts` - after run completes with STOPPED
+
+### 5. JSON Output
+
+When `--json` is used, include structured next steps:
+
 ```json
 {
-  "suggested_recovery": {
-    "mode": "flow",
-    "primary": "runr intervene 20260107120000 --reason review_loop ...",
-    "alternative": "runr resume 20260107120000"
+  "next_steps": {
+    "resume": "runr resume 20260107120000",
+    "intervene": "runr intervene 20260107120000 --reason review_loop --note \"...\"",
+    "audit": "runr audit --run 20260107120000"
   }
 }
 ```
 
+### 6. Keep It Compact
+
+- No boxes or heavy formatting
+- Single horizontal line separator
+- Max 6 lines total
+- Commands must be copy-paste ready with actual values
+
 ## Tests
-- Footer appears on stopped runs
-- Mode detection works correctly
-- Reason-specific suggestions are accurate
-- --json includes structured suggestions
-- Copy-paste commands include actual run_id
+- Footer appears on all STOPPED runs
+- Three commands always present with correct run_id
+- Context line matches stop reason
+- --json includes next_steps object
 
 ## Scope
 allowlist_add:
   - src/supervisor/runner.ts
   - src/commands/status.ts
-  - src/cli.ts
+  - src/commands/run.ts
   - src/output/stop-footer.ts
 
 ## Verification
@@ -91,5 +93,8 @@ tier: tier1
 ```bash
 npm run build
 npm test
-# Manual: run a task that stops, verify footer appears
+
+# Manual: trigger a stop, verify footer appears
+# Verify: commands include actual run_id
+# Verify: context line matches reason
 ```
