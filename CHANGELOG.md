@@ -7,6 +7,52 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-01-06
+
+**Hybrid Workflow Foundation** - Productivity + Auditability together.
+
+### Added
+
+- **runr intervene** - Record manual work with provenance
+  - SHA anchoring with `--since` for retroactive attribution
+  - Commit linking with `--commit` and `--amend-last`
+  - Command output capture with redaction
+  - Flow/Ledger mode awareness
+
+- **runr audit** - View project history by classification
+  - Classifications: CHECKPOINT, INTERVENTION, INFERRED, ATTRIBUTED, GAP
+  - Coverage reporting with `--coverage`
+  - CI thresholds with `--fail-under` and `--fail-under-with-inferred`
+  - Strict mode with `--strict`
+
+- **runr mode** - Switch between Flow and Ledger modes
+  - Flow mode: productivity-first, flexible interventions
+  - Ledger mode: audit-first, stricter controls
+
+- **Redaction** - Automatic secret removal from receipts
+  - Detects tokens, API keys, passwords, credentials
+  - Pattern-based with configurable behavior
+
+- **Review Loop Diagnostics** - Actionable guidance when runs stop
+  - Explains why review loops were detected
+  - Suggests specific fixes based on timeline analysis
+  - Identifies unmet verification requirements
+
+- **Inferred Attribution** - Reduce audit gaps automatically
+  - Commits within intervention SHA ranges classified as inferred
+  - Both explicit and inferred coverage tracked
+
+### Changed
+
+- Intervention receipts now include SHA anchors (base_sha, head_sha)
+- Audit shows dual coverage: explicit vs with-inferred
+- Config schema extended for receipts and workflow mode
+
+### Documentation
+
+- New: Hybrid Workflow Guide (`docs/hybrid-workflow-guide.md`)
+- New: Intervention Patterns (`docs/examples/intervention-patterns.md`)
+
 ## [0.6.0] - 2026-01-06
 
 **Meta-Agent UX Sprint** — Smoother onboarding and smarter defaults.

@@ -14,8 +14,10 @@ import { resolveRunId } from '../store/run-utils.js';
 import {
   writeIntervention,
   printInterventionReceipt,
-  type InterventionReason
+  type InterventionReason,
+  type CaptureMode
 } from '../receipt/intervention.js';
+import { getCurrentMode, checkModeRestriction } from './mode.js';
 
 export interface InterveneOptions {
   repo: string;
@@ -24,6 +26,20 @@ export interface InterveneOptions {
   note: string;
   commands: string[];
   json?: boolean;
+  /** Output capture mode (default: truncated) */
+  cmdOutput?: CaptureMode;
+  /** Disable secret redaction */
+  noRedact?: boolean;
+  /** Override base_sha for retroactive attribution */
+  since?: string;
+  /** Create commit with this message and trailers */
+  commit?: string;
+  /** Amend last commit to add trailers */
+  amendLast?: boolean;
+  /** Stage changes but don't commit */
+  stageOnly?: boolean;
+  /** Force amend even in Ledger mode */
+  force?: boolean;
 }
 
 const VALID_REASONS: InterventionReason[] = [
@@ -36,7 +52,17 @@ const VALID_REASONS: InterventionReason[] = [
 ];
 
 export async function interveneCommand(options: InterveneOptions): Promise<void> {
-  const { repo, reason, note, commands, json } = options;
+  const { repo, reason, note, commands, json, cmdOutput, noRedact, since, commit, amendLast, stageOnly, force } = options;
+
+  // Check mode restrictions for --amend-last
+  if (amendLast) {
+    const check = checkModeRestriction(repo, 'amend_last', force);
+    if (!check.allowed) {
+      console.error(check.error);
+      process.exitCode = 1;
+      return;
+    }
+  }
 
   // Validate reason
   if (!VALID_REASONS.includes(reason)) {
@@ -59,6 +85,9 @@ export async function interveneCommand(options: InterveneOptions): Promise<void>
   // Get run store
   const runStore = RunStore.init(runId, repo);
 
+  // Get workflow mode from config
+  const workflowMode = getCurrentMode(repo);
+
   // Write intervention receipt
   try {
     const result = await writeIntervention({
@@ -67,7 +96,15 @@ export async function interveneCommand(options: InterveneOptions): Promise<void>
       runId,
       reason,
       note,
-      commands
+      commands,
+      captureMode: cmdOutput,
+      redactSecrets: !noRedact,
+      sinceSha: since,
+      commitMessage: commit,
+      amendLast,
+      stageOnly,
+      workflowMode,
+      forceAmend: force
     });
 
     if (json) {

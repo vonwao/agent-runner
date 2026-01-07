@@ -259,5 +259,272 @@ describe('Intervention Receipt', () => {
       // Default branch after git init
       expect(['master', 'main']).toContain(result.receipt.branch);
     });
+
+    it('captures head_sha after commands', async () => {
+      const result = await writeIntervention({
+        runStorePath,
+        repoPath,
+        runId: '20260106120000',
+        reason: 'manual_fix',
+        note: 'Test',
+        commands: []
+      });
+
+      expect(result.receipt.head_sha).toBeDefined();
+      expect(result.receipt.head_sha.length).toBe(40);
+    });
+
+    it('detects dirty_before when tree is dirty', async () => {
+      // Make tree dirty before intervention
+      fs.writeFileSync(path.join(repoPath, 'dirty.txt'), 'dirty');
+
+      const result = await writeIntervention({
+        runStorePath,
+        repoPath,
+        runId: '20260106120000',
+        reason: 'manual_fix',
+        note: 'Test',
+        commands: []
+      });
+
+      expect(result.receipt.dirty_before).toBe(true);
+    });
+
+    it('detects clean tree correctly', async () => {
+      // No uncommitted changes
+      const result = await writeIntervention({
+        runStorePath,
+        repoPath,
+        runId: '20260106120000',
+        reason: 'manual_fix',
+        note: 'Test',
+        commands: []
+      });
+
+      expect(result.receipt.dirty_before).toBe(false);
+    });
+
+    it('captures commits_in_range when commands create commits', async () => {
+      const baseSha = execSync('git rev-parse HEAD', { cwd: repoPath, encoding: 'utf-8' }).trim();
+
+      const result = await writeIntervention({
+        runStorePath,
+        repoPath,
+        runId: '20260106120000',
+        reason: 'manual_fix',
+        note: 'Test with commit',
+        commands: [
+          'echo "new" > new.txt',
+          'git add new.txt',
+          'git commit -m "Test commit"'
+        ]
+      });
+
+      // base_sha should be the original HEAD
+      expect(result.receipt.base_sha).toBe(baseSha);
+      // head_sha should be different (new commit)
+      expect(result.receipt.head_sha).not.toBe(baseSha);
+      // commits_in_range should have the new commit
+      expect(result.receipt.commits_in_range.length).toBeGreaterThan(0);
+    });
+  });
+
+  describe('SHA anchor --since flag', () => {
+    it('uses --since SHA as base_sha', async () => {
+      // Create two commits
+      fs.writeFileSync(path.join(repoPath, 'file1.txt'), 'one');
+      execSync('git add . && git commit -m "commit 1"', { cwd: repoPath });
+      const commit1 = execSync('git rev-parse HEAD', { cwd: repoPath, encoding: 'utf-8' }).trim();
+
+      fs.writeFileSync(path.join(repoPath, 'file2.txt'), 'two');
+      execSync('git add . && git commit -m "commit 2"', { cwd: repoPath });
+
+      // Intervene with --since pointing to commit1
+      const result = await writeIntervention({
+        runStorePath,
+        repoPath,
+        runId: '20260106120000',
+        reason: 'manual_fix',
+        note: 'Retroactive attribution',
+        commands: [],
+        sinceSha: commit1
+      });
+
+      // base_sha should be commit1
+      expect(result.receipt.base_sha).toBe(commit1);
+      // commits_in_range should include commit2
+      expect(result.receipt.commits_in_range.length).toBe(1);
+    });
+
+    it('supports ref syntax like HEAD~1', async () => {
+      // Create a second commit
+      fs.writeFileSync(path.join(repoPath, 'file.txt'), 'content');
+      execSync('git add . && git commit -m "Second commit"', { cwd: repoPath });
+      const head = execSync('git rev-parse HEAD', { cwd: repoPath, encoding: 'utf-8' }).trim();
+      const headMinus1 = execSync('git rev-parse HEAD~1', { cwd: repoPath, encoding: 'utf-8' }).trim();
+
+      const result = await writeIntervention({
+        runStorePath,
+        repoPath,
+        runId: '20260106120000',
+        reason: 'manual_fix',
+        note: 'Using HEAD~1',
+        commands: [],
+        sinceSha: 'HEAD~1'
+      });
+
+      expect(result.receipt.base_sha).toBe(headMinus1);
+      expect(result.receipt.head_sha).toBe(head);
+    });
+
+    it('throws error for invalid --since SHA', async () => {
+      await expect(writeIntervention({
+        runStorePath,
+        repoPath,
+        runId: '20260106120000',
+        reason: 'manual_fix',
+        note: 'Invalid SHA',
+        commands: [],
+        sinceSha: 'invalid-sha-that-does-not-exist'
+      })).rejects.toThrow('Could not resolve');
+    });
+  });
+
+  describe('commit linking', () => {
+    it('--commit creates commit with trailers', async () => {
+      // Create uncommitted change
+      fs.writeFileSync(path.join(repoPath, 'change.txt'), 'content');
+
+      const result = await writeIntervention({
+        runStorePath,
+        repoPath,
+        runId: '20260106120000',
+        reason: 'manual_fix',
+        note: 'Test commit',
+        commands: [],
+        commitMessage: 'Test commit with trailers'
+      });
+
+      // Should have commit SHA
+      expect(result.commitSha).toBeDefined();
+      expect(result.commitSha!.length).toBe(40);
+
+      // Verify commit message has trailers
+      const commitMsg = execSync('git log -1 --format=%B', { cwd: repoPath, encoding: 'utf-8' });
+      expect(commitMsg).toContain('Test commit with trailers');
+      expect(commitMsg).toContain('Runr-Run-Id: 20260106120000');
+      expect(commitMsg).toContain('Runr-Intervention: true');
+      expect(commitMsg).toContain('Runr-Reason: manual_fix');
+    });
+
+    it('--amend-last adds trailers to existing commit', async () => {
+      // Create a commit to amend
+      fs.writeFileSync(path.join(repoPath, 'file.txt'), 'content');
+      execSync('git add . && git commit -m "Original message"', { cwd: repoPath });
+
+      const result = await writeIntervention({
+        runStorePath,
+        repoPath,
+        runId: '20260106120000',
+        reason: 'review_loop',
+        note: 'Amending test',
+        commands: [],
+        amendLast: true
+      });
+
+      // Should be marked as amended
+      expect(result.amended).toBe(true);
+      expect(result.commitSha).toBeDefined();
+
+      // Verify commit message has original message + trailers
+      const commitMsg = execSync('git log -1 --format=%B', { cwd: repoPath, encoding: 'utf-8' });
+      expect(commitMsg).toContain('Original message');
+      expect(commitMsg).toContain('Runr-Run-Id: 20260106120000');
+      expect(commitMsg).toContain('Runr-Intervention: true');
+    });
+
+    it('throws error when --commit and --amend-last are both used', async () => {
+      await expect(writeIntervention({
+        runStorePath,
+        repoPath,
+        runId: '20260106120000',
+        reason: 'manual_fix',
+        note: 'Test',
+        commands: [],
+        commitMessage: 'message',
+        amendLast: true
+      })).rejects.toThrow('Cannot use both --commit and --amend-last');
+    });
+
+    it('--amend-last blocked in Ledger mode', async () => {
+      // Create a commit to amend
+      fs.writeFileSync(path.join(repoPath, 'file.txt'), 'content');
+      execSync('git add . && git commit -m "Test"', { cwd: repoPath });
+
+      await expect(writeIntervention({
+        runStorePath,
+        repoPath,
+        runId: '20260106120000',
+        reason: 'manual_fix',
+        note: 'Test',
+        commands: [],
+        amendLast: true,
+        workflowMode: 'ledger'
+      })).rejects.toThrow('not allowed in Ledger mode');
+    });
+
+    it('--stage-only stages changes without committing', async () => {
+      // Create uncommitted change
+      fs.writeFileSync(path.join(repoPath, 'unstaged.txt'), 'content');
+
+      // Verify it's untracked
+      const statusBefore = execSync('git status --porcelain', { cwd: repoPath, encoding: 'utf-8' });
+      expect(statusBefore).toContain('??');
+
+      await writeIntervention({
+        runStorePath,
+        repoPath,
+        runId: '20260106120000',
+        reason: 'manual_fix',
+        note: 'Test',
+        commands: [],
+        stageOnly: true
+      });
+
+      // Verify it's now staged
+      const statusAfter = execSync('git status --porcelain', { cwd: repoPath, encoding: 'utf-8' });
+      expect(statusAfter).toContain('A ');
+    });
+
+    it('hasUncommittedChanges is true when changes exist and no commit', async () => {
+      fs.writeFileSync(path.join(repoPath, 'file.txt'), 'content');
+
+      const result = await writeIntervention({
+        runStorePath,
+        repoPath,
+        runId: '20260106120000',
+        reason: 'manual_fix',
+        note: 'Test',
+        commands: []
+      });
+
+      expect(result.hasUncommittedChanges).toBe(true);
+    });
+
+    it('hasUncommittedChanges is false after --commit', async () => {
+      fs.writeFileSync(path.join(repoPath, 'file.txt'), 'content');
+
+      const result = await writeIntervention({
+        runStorePath,
+        repoPath,
+        runId: '20260106120000',
+        reason: 'manual_fix',
+        note: 'Test',
+        commands: [],
+        commitMessage: 'Commit the changes'
+      });
+
+      expect(result.hasUncommittedChanges).toBe(false);
+    });
   });
 });

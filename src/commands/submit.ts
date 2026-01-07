@@ -129,6 +129,7 @@ export async function submitCommand(options: SubmitOptions): Promise<void> {
   // Get workflow config (use safe defaults if not configured)
   const workflow: WorkflowConfig = config.workflow ?? {
     profile: 'solo',
+    mode: 'flow',
     integration_branch: 'dev',
     require_clean_tree: true,
     require_verification: true,

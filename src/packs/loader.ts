@@ -15,6 +15,7 @@ export interface PackManifest {
   description: string;
   defaults?: {
     profile?: 'solo' | 'pr' | 'trunk';
+    mode?: 'flow' | 'ledger';
     integration_branch?: string;
     release_branch?: string;
     submit_strategy?: 'cherry-pick';

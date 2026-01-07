@@ -16,6 +16,7 @@ import { getRunsRoot } from '../store/runs-root.js';
 export type CommitClassification =
   | 'runr_checkpoint'
   | 'runr_intervention'
+  | 'runr_inferred'
   | 'manual_attributed'
   | 'gap';
 
@@ -36,6 +37,7 @@ export interface ClassifiedCommit {
   trailers: CommitTrailers;
   runId?: string;
   receiptPath?: string;
+  inferenceSource?: 'intervention_range';  // How attribution was inferred
 }
 
 export interface AuditSummary {
@@ -45,11 +47,18 @@ export interface AuditSummary {
     total: number;
     runr_checkpoint: number;
     runr_intervention: number;
+    runr_inferred: number;
     manual_attributed: number;
     gap: number;
   };
   gaps: ClassifiedCommit[];
   runsReferenced: string[];
+  /** Coverage excluding inferred attribution (checkpoint + intervention) */
+  explicitCoverage: number;
+  /** Coverage including inferred attribution (checkpoint + intervention + inferred) */
+  inferredCoverage: number;
+  /** Full coverage including all attribution (checkpoint + intervention + inferred + attributed) */
+  fullCoverage: number;
 }
 
 /**
@@ -163,10 +172,98 @@ function hasInterventionReceipt(runsRoot: string, runId: string): string | null 
 }
 
 /**
+ * Intervention range for SHA-based inference.
+ */
+interface InterventionRange {
+  runId: string;
+  baseSha: string;
+  headSha: string;
+  receiptPath: string;
+}
+
+/**
+ * Load all intervention ranges from run stores.
+ */
+function loadInterventionRanges(runsRoot: string): InterventionRange[] {
+  const ranges: InterventionRange[] = [];
+
+  if (!fs.existsSync(runsRoot)) return ranges;
+
+  try {
+    const runDirs = fs.readdirSync(runsRoot, { withFileTypes: true })
+      .filter(d => d.isDirectory() && /^\d{14}$/.test(d.name));
+
+    for (const runDir of runDirs) {
+      const interventionsDir = path.join(runsRoot, runDir.name, 'interventions');
+      if (!fs.existsSync(interventionsDir)) continue;
+
+      try {
+        const files = fs.readdirSync(interventionsDir).filter(f => f.endsWith('.json'));
+        for (const file of files) {
+          const receiptPath = path.join(interventionsDir, file);
+          try {
+            const receipt = JSON.parse(fs.readFileSync(receiptPath, 'utf-8'));
+            // Only include receipts with both base_sha and head_sha
+            if (receipt.base_sha && receipt.head_sha && receipt.base_sha !== receipt.head_sha) {
+              ranges.push({
+                runId: runDir.name,
+                baseSha: receipt.base_sha,
+                headSha: receipt.head_sha,
+                receiptPath
+              });
+            }
+          } catch { /* skip invalid receipts */ }
+        }
+      } catch { /* skip inaccessible dirs */ }
+    }
+  } catch { /* ignore */ }
+
+  return ranges;
+}
+
+/**
+ * Check if a commit SHA is within any intervention range.
+ * Uses git merge-base --is-ancestor to check ancestry.
+ */
+function findInterventionRangeForCommit(
+  repoPath: string,
+  sha: string,
+  ranges: InterventionRange[]
+): InterventionRange | null {
+  for (const range of ranges) {
+    try {
+      // Check if sha is a descendant of base_sha
+      execSync(`git merge-base --is-ancestor ${range.baseSha} ${sha}`, {
+        cwd: repoPath,
+        encoding: 'utf-8',
+        stdio: ['pipe', 'pipe', 'pipe']
+      });
+
+      // Check if sha is an ancestor of (or equal to) head_sha
+      execSync(`git merge-base --is-ancestor ${sha} ${range.headSha}`, {
+        cwd: repoPath,
+        encoding: 'utf-8',
+        stdio: ['pipe', 'pipe', 'pipe']
+      });
+
+      // Both checks passed - commit is within range
+      return range;
+    } catch {
+      // Not in this range, continue checking
+    }
+  }
+
+  return null;
+}
+
+/**
  * Classify commits based on trailers and receipt artifacts.
  */
 export function classifyCommits(commits: ClassifiedCommit[], repoPath: string): ClassifiedCommit[] {
   const runsRoot = getRunsRoot(repoPath);
+
+  // Load intervention ranges for SHA-based inference
+  const interventionRanges = loadInterventionRanges(runsRoot);
 
   for (const commit of commits) {
     // Priority 1: Check if this is a checkpoint commit (by SHA match)
@@ -211,7 +308,17 @@ export function classifyCommits(commits: ClassifiedCommit[], repoPath: string): 
       continue;
     }
 
-    // Priority 5: Check commit message for Task patterns (legacy)
+    // Priority 5: Check if commit falls within intervention SHA range (inferred)
+    const matchedRange = findInterventionRangeForCommit(repoPath, commit.sha, interventionRanges);
+    if (matchedRange) {
+      commit.classification = 'runr_inferred';
+      commit.runId = matchedRange.runId;
+      commit.receiptPath = matchedRange.receiptPath;
+      commit.inferenceSource = 'intervention_range';
+      continue;
+    }
+
+    // Priority 6: Check commit message for Task patterns (legacy)
     if (/Task \d+|task-\d+/i.test(commit.subject)) {
       // Try to find a matching run
       const runMatch = commit.subject.match(/(\d{14})/);
@@ -231,12 +338,14 @@ export function classifyCommits(commits: ClassifiedCommit[], repoPath: string): 
 
 /**
  * Generate audit summary from classified commits.
+ * @param strict If true, treat runr_inferred as gaps
  */
-export function generateSummary(commits: ClassifiedCommit[], range: string): AuditSummary {
+export function generateSummary(commits: ClassifiedCommit[], range: string, strict = false): AuditSummary {
   const counts = {
     total: commits.length,
     runr_checkpoint: 0,
     runr_intervention: 0,
+    runr_inferred: 0,
     manual_attributed: 0,
     gap: 0
   };
@@ -247,7 +356,8 @@ export function generateSummary(commits: ClassifiedCommit[], range: string): Aud
   for (const commit of commits) {
     counts[commit.classification]++;
 
-    if (commit.classification === 'gap') {
+    // In strict mode, treat inferred as gaps
+    if (commit.classification === 'gap' || (strict && commit.classification === 'runr_inferred')) {
       gaps.push(commit);
     }
 
@@ -256,12 +366,32 @@ export function generateSummary(commits: ClassifiedCommit[], range: string): Aud
     }
   }
 
+  // Calculate coverage percentages
+  const explicitCount = counts.runr_checkpoint + counts.runr_intervention;
+  const withInferredCount = explicitCount + counts.runr_inferred;
+  const fullCount = withInferredCount + counts.manual_attributed;
+
+  const explicitCoverage = counts.total > 0
+    ? Math.round((explicitCount / counts.total) * 100)
+    : 0;
+
+  const inferredCoverage = counts.total > 0
+    ? Math.round((withInferredCount / counts.total) * 100)
+    : 0;
+
+  const fullCoverage = counts.total > 0
+    ? Math.round((fullCount / counts.total) * 100)
+    : 0;
+
   return {
     range,
     commits,
     counts,
     gaps,
-    runsReferenced: Array.from(runsReferenced).sort()
+    runsReferenced: Array.from(runsReferenced).sort(),
+    explicitCoverage,
+    inferredCoverage,
+    fullCoverage
   };
 }
 
@@ -272,6 +402,7 @@ export function formatClassification(classification: CommitClassification): stri
   switch (classification) {
     case 'runr_checkpoint': return 'CHECKPOINT';
     case 'runr_intervention': return 'INTERVENTION';
+    case 'runr_inferred': return 'INFERRED';
     case 'manual_attributed': return 'ATTRIBUTED';
     case 'gap': return 'GAP';
   }
@@ -284,6 +415,7 @@ export function getClassificationIcon(classification: CommitClassification): str
   switch (classification) {
     case 'runr_checkpoint': return '✓';
     case 'runr_intervention': return '⚡';
+    case 'runr_inferred': return '~';
     case 'manual_attributed': return '○';
     case 'gap': return '?';
   }

@@ -165,10 +165,22 @@ const resilienceSchema = z.object({
   max_review_rounds: z.number().int().positive().default(2)
 });
 
+// Receipts configuration for output capture and redaction
+const receiptsConfigSchema = z.object({
+  /** Enable secret redaction in command output */
+  redact: z.boolean().default(true),
+  /** How much command output to capture: full, truncated, or metadata_only */
+  capture_cmd_output: z.enum(['full', 'truncated', 'metadata_only']).default('truncated'),
+  /** Maximum output bytes to store (when truncated) */
+  max_output_bytes: z.number().int().positive().default(10240) // 10KB
+});
+
 // Workflow configuration for integration strategy
 const workflowConfigSchema = z.object({
   /** Workflow profile preset (solo/pr/trunk) */
   profile: z.enum(['solo', 'pr', 'trunk']).default('solo'),
+  /** Workflow mode: flow (permissive) or ledger (strict) */
+  mode: z.enum(['flow', 'ledger']).default('flow'),
   /** Target branch for integrating verified checkpoints */
   integration_branch: z.string(),
   /** Submit strategy (v1: cherry-pick only) */
@@ -187,7 +199,8 @@ export const agentConfigSchema = z.object({
   workers: workersSchema.default({}),
   phases: phasesSchema.default({}),
   resilience: resilienceSchema.default({}),
-  workflow: workflowConfigSchema.optional()
+  workflow: workflowConfigSchema.optional(),
+  receipts: receiptsConfigSchema.default({})
 });
 
 export type PhasesConfig = z.infer<typeof phasesSchema>;
@@ -195,6 +208,8 @@ export type PhasesConfig = z.infer<typeof phasesSchema>;
 export type WorkerConfig = z.infer<typeof workerConfigSchema>;
 
 export type WorkflowConfig = z.infer<typeof workflowConfigSchema>;
+
+export type ReceiptsConfig = z.infer<typeof receiptsConfigSchema>;
 
 export type AgentConfig = z.infer<typeof agentConfigSchema>;
 
@@ -206,6 +221,7 @@ export function getWorkflowProfileDefaults(profile: 'solo' | 'pr' | 'trunk'): Pa
     case 'solo':
       return {
         profile: 'solo',
+        mode: 'flow',
         integration_branch: 'dev',
         submit_strategy: 'cherry-pick',
         require_clean_tree: true,
@@ -214,6 +230,7 @@ export function getWorkflowProfileDefaults(profile: 'solo' | 'pr' | 'trunk'): Pa
     case 'pr':
       return {
         profile: 'pr',
+        mode: 'flow',
         integration_branch: 'main',
         submit_strategy: 'cherry-pick',
         require_clean_tree: true,
@@ -222,6 +239,7 @@ export function getWorkflowProfileDefaults(profile: 'solo' | 'pr' | 'trunk'): Pa
     case 'trunk':
       return {
         profile: 'trunk',
+        mode: 'ledger',
         integration_branch: 'main',
         submit_strategy: 'cherry-pick',
         require_clean_tree: true,

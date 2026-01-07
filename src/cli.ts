@@ -25,6 +25,7 @@ import { submitCommand } from './commands/submit.js';
 import { metaCommand } from './commands/meta.js';
 import { interveneCommand } from './commands/intervene.js';
 import { auditCommand } from './commands/audit.js';
+import { modeCommand, type WorkflowMode } from './commands/mode.js';
 import { CollisionPolicy } from './orchestrator/types.js';
 
 const program = new Command();
@@ -686,6 +687,13 @@ program
   .requiredOption('--reason <type>', 'Why intervention was needed: review_loop, stalled_timeout, verification_failed, scope_violation, manual_fix, other')
   .requiredOption('--note <text>', 'Description of what was done')
   .option('--cmd <command>', 'Command to run and capture (can be repeated)', (val, prev: string[]) => [...prev, val], [])
+  .option('--cmd-output <mode>', 'Output capture mode: full, truncated (default), metadata_only', 'truncated')
+  .option('--no-redact', 'Disable secret redaction in command output')
+  .option('--since <sha>', 'Override base_sha for retroactive attribution (e.g., HEAD~3)')
+  .option('--commit <message>', 'Create commit with message and Runr trailers')
+  .option('--amend-last', 'Amend last commit to add Runr trailers (Flow mode only)')
+  .option('--stage-only', 'Stage changes but do not commit')
+  .option('--force', 'Force operations even if unsafe (e.g., amend in Ledger mode)')
   .option('--repo <path>', 'Target repo path', '.')
   .option('--json', 'Output JSON', false)
   .action(async (runId: string, options) => {
@@ -695,6 +703,13 @@ program
       reason: options.reason,
       note: options.note,
       commands: options.cmd,
+      cmdOutput: options.cmdOutput,
+      noRedact: !options.redact,
+      since: options.since,
+      commit: options.commit,
+      amendLast: options.amendLast,
+      stageOnly: options.stageOnly,
+      force: options.force,
       json: options.json
     });
   });
@@ -708,13 +723,34 @@ program
   .option('--run <id>', 'Filter to commits for specific run ID')
   .option('--limit <n>', 'Number of commits to analyze (default: 50)', '50')
   .option('--json', 'Output JSON', false)
+  .option('--strict', 'Strict mode: treat inferred attribution as gaps', false)
+  .option('--coverage', 'Output coverage report (JSON with --json)', false)
+  .option('--fail-under <pct>', 'Exit 1 if explicit coverage < threshold (CI mode)')
+  .option('--fail-under-with-inferred <pct>', 'Exit 1 if inferred coverage < threshold')
   .action(async (options) => {
     await auditCommand({
       repo: options.repo,
       range: options.range,
       runId: options.run,
       limit: parseInt(options.limit, 10),
-      json: options.json
+      json: options.json,
+      strict: options.strict,
+      coverage: options.coverage,
+      failUnder: options.failUnder ? parseInt(options.failUnder, 10) : undefined,
+      failUnderWithInferred: options.failUnderWithInferred ? parseInt(options.failUnderWithInferred, 10) : undefined
+    });
+  });
+
+// mode - View or set workflow mode
+program
+  .command('mode')
+  .description('View or set workflow mode (flow/ledger)')
+  .argument('[mode]', 'Mode to set (flow or ledger)')
+  .option('--repo <path>', 'Target repo path', '.')
+  .action(async (mode, options) => {
+    await modeCommand({
+      repo: options.repo,
+      newMode: mode as WorkflowMode | undefined
     });
   });
 

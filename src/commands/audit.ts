@@ -31,6 +31,14 @@ export interface AuditOptions {
   runId?: string;
   limit?: number;
   json?: boolean;
+  /** Strict mode: treat inferred attribution as gaps */
+  strict?: boolean;
+  /** Output JSON coverage report */
+  coverage?: boolean;
+  /** Fail with exit code 1 if explicit coverage is below this threshold (%) */
+  failUnder?: number;
+  /** Fail with exit code 1 if inferred coverage is below this threshold (%) */
+  failUnderWithInferred?: number;
 }
 
 /**
@@ -98,8 +106,8 @@ function printTable(commits: ClassifiedCommit[]): void {
 /**
  * Print summary section.
  */
-function printSummary(summary: AuditSummary): void {
-  const { counts, gaps, runsReferenced } = summary;
+function printSummary(summary: AuditSummary, strict = false): void {
+  const { counts, gaps, runsReferenced, explicitCoverage, inferredCoverage, fullCoverage } = summary;
 
   console.log('');
   console.log('Summary');
@@ -107,6 +115,7 @@ function printSummary(summary: AuditSummary): void {
   console.log(`Total commits: ${counts.total}`);
   console.log(`  ✓ Checkpoints:    ${counts.runr_checkpoint}`);
   console.log(`  ⚡ Interventions:  ${counts.runr_intervention}`);
+  console.log(`  ~ Inferred:       ${counts.runr_inferred}`);
   console.log(`  ○ Attributed:     ${counts.manual_attributed}`);
   console.log(`  ? Gaps:           ${counts.gap}`);
 
@@ -122,24 +131,27 @@ function printSummary(summary: AuditSummary): void {
     }
   }
 
-  // Audit health indicator
+  // Audit health indicator with coverage numbers
   console.log('');
-  const coverage = counts.total > 0
-    ? Math.round(((counts.runr_checkpoint + counts.runr_intervention) / counts.total) * 100)
-    : 0;
+
+  // Show coverage differently based on strict mode
+  const coverageDisplay = strict
+    ? `${explicitCoverage}% coverage (strict mode)`
+    : `${explicitCoverage}% (explicit) / ${inferredCoverage}% (with inferred)`;
 
   if (gaps.length === 0) {
-    console.log(`Audit status: ✓ CLEAN (${coverage}% coverage)`);
+    console.log(`Audit status: ✓ CLEAN (${coverageDisplay})`);
   } else if (gaps.length <= 3) {
-    console.log(`Audit status: ⚠ ${gaps.length} gap${gaps.length === 1 ? '' : 's'} (${coverage}% coverage)`);
+    console.log(`Audit status: ⚠ ${gaps.length} gap${gaps.length === 1 ? '' : 's'} (${coverageDisplay})`);
   } else {
-    console.log(`Audit status: ✗ ${gaps.length} gaps (${coverage}% coverage)`);
+    console.log(`Audit status: ✗ ${gaps.length} gaps (${coverageDisplay})`);
   }
 
   // Show top gaps if any
   if (gaps.length > 0) {
     console.log('');
-    console.log('Top gaps (unattributed commits):');
+    const gapLabel = strict ? 'Top gaps (unattributed commits + inferred):' : 'Top gaps (unattributed commits):';
+    console.log(gapLabel);
     const displayGaps = gaps.slice(0, 5);
     for (const gap of displayGaps) {
       console.log(`  ${gap.shortSha} ${gap.subject.slice(0, 50)}`);
@@ -148,6 +160,67 @@ function printSummary(summary: AuditSummary): void {
       console.log(`  ...${gaps.length - 5} more`);
     }
   }
+}
+
+/**
+ * Print coverage report in human-readable format.
+ */
+function printCoverageReport(summary: AuditSummary, options: AuditOptions): void {
+  const { counts, explicitCoverage, inferredCoverage, fullCoverage } = summary;
+
+  const explicitCount = counts.runr_checkpoint + counts.runr_intervention;
+  const inferredCount = explicitCount + counts.runr_inferred;
+  const fullCount = inferredCount + counts.manual_attributed;
+
+  console.log('Coverage Report');
+  console.log('---------------');
+  console.log(`Explicit coverage:      ${explicitCoverage}% (${explicitCount}/${counts.total})`);
+  console.log(`With inferred:          ${inferredCoverage}% (${inferredCount}/${counts.total})`);
+  console.log(`Full (with attributed): ${fullCoverage}% (${fullCount}/${counts.total})`);
+
+  // Show threshold status if specified
+  if (options.failUnder !== undefined || options.failUnderWithInferred !== undefined) {
+    console.log('');
+
+    if (options.failUnder !== undefined) {
+      const status = explicitCoverage >= options.failUnder ? 'PASS' : 'FAIL';
+      console.log(`Threshold: ${options.failUnder}% (explicit)`);
+      console.log(`Status: ${status} (explicit coverage ${explicitCoverage}% ${status === 'PASS' ? '>=' : '<'} ${options.failUnder}%)`);
+    }
+
+    if (options.failUnderWithInferred !== undefined) {
+      const status = inferredCoverage >= options.failUnderWithInferred ? 'PASS' : 'FAIL';
+      console.log(`Threshold: ${options.failUnderWithInferred}% (with inferred)`);
+      console.log(`Status: ${status} (inferred coverage ${inferredCoverage}% ${status === 'PASS' ? '>=' : '<'} ${options.failUnderWithInferred}%)`);
+    }
+  }
+}
+
+/**
+ * Generate coverage JSON report.
+ */
+function generateCoverageJson(summary: AuditSummary): object {
+  const { counts, gaps, runsReferenced, explicitCoverage, inferredCoverage, fullCoverage } = summary;
+
+  return {
+    range: summary.range,
+    timestamp: new Date().toISOString(),
+    total_commits: counts.total,
+    classifications: {
+      runr_checkpoint: counts.runr_checkpoint,
+      runr_intervention: counts.runr_intervention,
+      runr_inferred: counts.runr_inferred,
+      manual_attributed: counts.manual_attributed,
+      gap: counts.gap
+    },
+    coverage: {
+      explicit: explicitCoverage / 100,
+      with_inferred: inferredCoverage / 100,
+      with_attributed: fullCoverage / 100
+    },
+    gaps: gaps.map(g => ({ sha: g.sha, subject: g.subject })),
+    runs_referenced: runsReferenced
+  };
 }
 
 /**
@@ -191,21 +264,47 @@ export async function auditCommand(options: AuditOptions): Promise<void> {
     }
   }
 
-  // Generate summary
-  const summary = generateSummary(commits, range);
+  // Generate summary (strict mode treats inferred as gaps)
+  const summary = generateSummary(commits, range, options.strict);
 
   // Output
-  if (options.json) {
+  if (options.coverage) {
+    // Coverage report mode
+    if (options.json) {
+      console.log(JSON.stringify(generateCoverageJson(summary), null, 2));
+    } else {
+      console.log(`Audit: ${range}`);
+      console.log('');
+      printCoverageReport(summary, options);
+      console.log('');
+    }
+  } else if (options.json) {
     console.log(JSON.stringify(summary, null, 2));
   } else {
     console.log(`Audit: ${range}`);
     if (options.runId) {
       console.log(`Filtered by run: ${options.runId}`);
     }
+    if (options.strict) {
+      console.log('(strict mode: inferred attribution treated as gaps)');
+    }
     console.log('');
 
     printTable(commits);
-    printSummary(summary);
+    printSummary(summary, options.strict);
     console.log('');
+  }
+
+  // Check threshold and set exit code if specified
+  if (options.failUnder !== undefined) {
+    if (summary.explicitCoverage < options.failUnder) {
+      process.exitCode = 1;
+    }
+  }
+
+  if (options.failUnderWithInferred !== undefined) {
+    if (summary.inferredCoverage < options.failUnderWithInferred) {
+      process.exitCode = 1;
+    }
   }
 }

@@ -193,12 +193,73 @@ describe('Audit Classifier', () => {
     });
   });
 
+  describe('inferred attribution', () => {
+    it('classifies commits within intervention SHA range as inferred', () => {
+      // Create base commit
+      const baseSha = createCommit('Base commit');
+
+      // Create a commit within the range
+      const middleSha = createCommit('Middle commit');
+
+      // Create head commit
+      const headSha = createCommit('Head commit');
+
+      // Create intervention receipt with base_sha and head_sha
+      const interventionsDir = path.join(repoPath, '.runr', 'runs', '20260106120000', 'interventions');
+      fs.mkdirSync(interventionsDir, { recursive: true });
+      fs.writeFileSync(
+        path.join(interventionsDir, '20260106-120000-manual_fix.json'),
+        JSON.stringify({
+          reason: 'manual_fix',
+          base_sha: baseSha,
+          head_sha: headSha
+        })
+      );
+
+      // Parse and classify only the middle commit (within range but no explicit attribution)
+      const commits = parseGitLog(repoPath, `${baseSha}..${middleSha}`);
+      const classified = classifyCommits(commits, repoPath);
+
+      expect(classified[0].classification).toBe('runr_inferred');
+      expect(classified[0].runId).toBe('20260106120000');
+      expect(classified[0].inferenceSource).toBe('intervention_range');
+    });
+
+    it('does not infer for commits outside intervention range', () => {
+      // Create base and setup commits
+      createCommit('Setup commit');  // Need a parent for the range
+      const outsideSha = createCommit('Outside commit');
+      const baseSha = createCommit('Base commit');
+      const headSha = createCommit('Head commit');
+      const afterSha = createCommit('After commit');
+
+      // Create intervention receipt with range that doesn't include the outside commit
+      const interventionsDir = path.join(repoPath, '.runr', 'runs', '20260106120000', 'interventions');
+      fs.mkdirSync(interventionsDir, { recursive: true });
+      fs.writeFileSync(
+        path.join(interventionsDir, '20260106-120000-manual_fix.json'),
+        JSON.stringify({
+          reason: 'manual_fix',
+          base_sha: baseSha,
+          head_sha: headSha
+        })
+      );
+
+      // Parse and classify the after commit (after head_sha, so outside range)
+      const commits = parseGitLog(repoPath, `${headSha}..${afterSha}`);
+      const classified = classifyCommits(commits, repoPath);
+
+      // Should be a gap, not inferred (after the range)
+      expect(classified[0].classification).toBe('gap');
+    });
+  });
+
   describe('generateSummary', () => {
-    it('counts commits by classification', () => {
+    it('counts commits by classification including inferred', () => {
       const commits: ClassifiedCommit[] = [
         { sha: 'a', shortSha: 'a', subject: 'a', author: 'a', date: '', classification: 'runr_checkpoint', trailers: {} },
         { sha: 'b', shortSha: 'b', subject: 'b', author: 'a', date: '', classification: 'runr_intervention', trailers: {} },
-        { sha: 'c', shortSha: 'c', subject: 'c', author: 'a', date: '', classification: 'gap', trailers: {} },
+        { sha: 'c', shortSha: 'c', subject: 'c', author: 'a', date: '', classification: 'runr_inferred', trailers: {} },
         { sha: 'd', shortSha: 'd', subject: 'd', author: 'a', date: '', classification: 'gap', trailers: {} }
       ];
 
@@ -207,7 +268,56 @@ describe('Audit Classifier', () => {
       expect(summary.counts.total).toBe(4);
       expect(summary.counts.runr_checkpoint).toBe(1);
       expect(summary.counts.runr_intervention).toBe(1);
-      expect(summary.counts.gap).toBe(2);
+      expect(summary.counts.runr_inferred).toBe(1);
+      expect(summary.counts.gap).toBe(1);
+    });
+
+    it('calculates coverage percentages correctly', () => {
+      const commits: ClassifiedCommit[] = [
+        { sha: 'a', shortSha: 'a', subject: 'a', author: 'a', date: '', classification: 'runr_checkpoint', trailers: {} },
+        { sha: 'b', shortSha: 'b', subject: 'b', author: 'a', date: '', classification: 'runr_intervention', trailers: {} },
+        { sha: 'c', shortSha: 'c', subject: 'c', author: 'a', date: '', classification: 'runr_inferred', trailers: {} },
+        { sha: 'd', shortSha: 'd', subject: 'd', author: 'a', date: '', classification: 'manual_attributed', trailers: {} },
+        { sha: 'e', shortSha: 'e', subject: 'e', author: 'a', date: '', classification: 'gap', trailers: {} }
+      ];
+
+      const summary = generateSummary(commits, 'test');
+
+      // Explicit: checkpoint + intervention = 2/5 = 40%
+      expect(summary.explicitCoverage).toBe(40);
+      // Inferred: checkpoint + intervention + inferred = 3/5 = 60%
+      expect(summary.inferredCoverage).toBe(60);
+      // Full: checkpoint + intervention + inferred + attributed = 4/5 = 80%
+      expect(summary.fullCoverage).toBe(80);
+    });
+
+    it('treats inferred as gaps in strict mode', () => {
+      const commits: ClassifiedCommit[] = [
+        { sha: 'a', shortSha: 'a', subject: 'a', author: 'a', date: '', classification: 'runr_checkpoint', trailers: {} },
+        { sha: 'b', shortSha: 'b', subject: 'inferred', author: 'a', date: '', classification: 'runr_inferred', trailers: {} },
+        { sha: 'c', shortSha: 'c', subject: 'gap', author: 'a', date: '', classification: 'gap', trailers: {} }
+      ];
+
+      const summary = generateSummary(commits, 'test', true);
+
+      // In strict mode, inferred should be included in gaps
+      expect(summary.gaps).toHaveLength(2);
+      expect(summary.gaps.some(g => g.subject === 'inferred')).toBe(true);
+      expect(summary.gaps.some(g => g.subject === 'gap')).toBe(true);
+    });
+
+    it('does not treat inferred as gaps in normal mode', () => {
+      const commits: ClassifiedCommit[] = [
+        { sha: 'a', shortSha: 'a', subject: 'a', author: 'a', date: '', classification: 'runr_checkpoint', trailers: {} },
+        { sha: 'b', shortSha: 'b', subject: 'inferred', author: 'a', date: '', classification: 'runr_inferred', trailers: {} },
+        { sha: 'c', shortSha: 'c', subject: 'gap', author: 'a', date: '', classification: 'gap', trailers: {} }
+      ];
+
+      const summary = generateSummary(commits, 'test', false);
+
+      // In normal mode, only actual gaps should be in gaps list
+      expect(summary.gaps).toHaveLength(1);
+      expect(summary.gaps[0].subject).toBe('gap');
     });
 
     it('collects gaps', () => {
@@ -247,6 +357,10 @@ describe('Audit Classifier', () => {
       expect(formatClassification('runr_intervention')).toBe('INTERVENTION');
     });
 
+    it('formats inferred', () => {
+      expect(formatClassification('runr_inferred')).toBe('INFERRED');
+    });
+
     it('formats gap', () => {
       expect(formatClassification('gap')).toBe('GAP');
     });
@@ -259,6 +373,10 @@ describe('Audit Classifier', () => {
 
     it('returns lightning for intervention', () => {
       expect(getClassificationIcon('runr_intervention')).toBe('⚡');
+    });
+
+    it('returns tilde for inferred', () => {
+      expect(getClassificationIcon('runr_inferred')).toBe('~');
     });
 
     it('returns question mark for gap', () => {
