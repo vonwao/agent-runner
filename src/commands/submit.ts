@@ -1,5 +1,6 @@
 import { execa } from 'execa';
 import path from 'node:path';
+import fs from 'node:fs';
 import { RunStore } from '../store/run-store.js';
 import { RunState } from '../types/schemas.js';
 import { loadConfig, resolveConfigPath } from '../config/load.js';
@@ -80,6 +81,47 @@ async function getConflictedFiles(repoPath: string): Promise<string[]> {
       .sort();
   } catch {
     return [];
+  }
+}
+
+/**
+ * Get files changed in a commit.
+ */
+async function getFilesInCommit(repoPath: string, sha: string): Promise<string[]> {
+  try {
+    const result = await execa('git', ['diff-tree', '--no-commit-id', '--name-only', '-r', sha], {
+      cwd: repoPath
+    });
+    return result.stdout
+      .split('\n')
+      .map(f => f.trim())
+      .filter(Boolean);
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Check if cherry-pick would cause conflict (dry-run).
+ */
+async function wouldCherryPickConflict(repoPath: string, targetBranch: string, sha: string): Promise<{ conflicts: boolean; files: string[] }> {
+  try {
+    // Try cherry-pick with --no-commit to detect conflicts without making changes
+    await execa('git', ['cherry-pick', '--no-commit', sha], { cwd: repoPath });
+    // If successful, reset and report no conflicts
+    await execa('git', ['reset', '--hard', 'HEAD'], { cwd: repoPath });
+    return { conflicts: false, files: [] };
+  } catch {
+    // Get conflicted files
+    const files = await getConflictedFiles(repoPath);
+    // Abort and reset
+    try {
+      await execa('git', ['cherry-pick', '--abort'], { cwd: repoPath });
+    } catch {
+      // Reset as fallback
+      await execa('git', ['reset', '--hard', 'HEAD'], { cwd: repoPath });
+    }
+    return { conflicts: true, files };
   }
 }
 
@@ -192,7 +234,7 @@ export async function submitCommand(options: SubmitOptions): Promise<void> {
     return;
   }
 
-  // DRY RUN: print plan and exit (no events, no changes)
+  // DRY RUN: print plan and check for conflicts (no events, no changes)
   if (options.dryRun) {
     console.log('Submit plan (dry-run):');
     console.log(`  run_id: ${options.runId}`);
@@ -200,6 +242,31 @@ export async function submitCommand(options: SubmitOptions): Promise<void> {
     console.log(`  target: ${targetBranch}`);
     console.log(`  strategy: cherry-pick`);
     console.log(`  push: ${options.push ? 'yes' : 'no'}`);
+
+    // Check for potential conflicts without making changes
+    const startingBranch = await getCurrentBranch(options.repo);
+    try {
+      await execa('git', ['checkout', targetBranch], { cwd: options.repo });
+      const conflictCheck = await wouldCherryPickConflict(options.repo, targetBranch, checkpointSha);
+
+      if (conflictCheck.conflicts) {
+        console.log('');
+        console.log('  ⚠️  Would conflict:');
+        for (const file of conflictCheck.files) {
+          console.log(`      - ${file}`);
+        }
+      } else {
+        console.log('');
+        console.log('  ✓ No conflicts detected');
+      }
+    } finally {
+      // Always restore starting branch
+      try {
+        await execa('git', ['checkout', startingBranch], { cwd: options.repo });
+      } catch {
+        // Best effort
+      }
+    }
     return;
   }
 
@@ -231,7 +298,20 @@ export async function submitCommand(options: SubmitOptions): Promise<void> {
         // Ignore restoration errors
       }
 
-      // Emit conflict event
+      // Verify tree is actually clean after abort
+      const treeClean = await isWorkingTreeClean(options.repo);
+      const currentBranch = await getCurrentBranch(options.repo);
+      const branchRestored = currentBranch === startingBranch;
+
+      // Log warnings if invariants fail
+      if (!branchRestored) {
+        console.warn(`Warning: Could not restore branch. Expected ${startingBranch}, got ${currentBranch}`);
+      }
+      if (!treeClean) {
+        console.warn('Warning: Working tree is not clean after conflict cleanup');
+      }
+
+      // Emit enhanced conflict event
       runStore.appendEvent({
         type: 'submit_conflict',
         source: 'submit',
@@ -239,14 +319,18 @@ export async function submitCommand(options: SubmitOptions): Promise<void> {
           run_id: options.runId,
           checkpoint_sha: checkpointSha,
           target_branch: targetBranch,
-          conflicted_files: conflictedFiles
+          conflicted_files: conflictedFiles,
+          recovery_branch: currentBranch,
+          recovery_state: treeClean ? 'clean' : 'dirty',
+          suggested_commands: [
+            `git checkout ${targetBranch}`,
+            `git cherry-pick ${checkpointSha}`,
+            '# resolve conflicts',
+            'git add .',
+            'git cherry-pick --continue'
+          ]
         }
       });
-
-      // Verify tree is actually clean after abort
-      const treeClean = await isWorkingTreeClean(options.repo);
-      const currentBranch = await getCurrentBranch(options.repo);
-      const branchRestored = currentBranch === startingBranch;
 
       // Print conflict message with recovery recipe (exact spec format)
       console.error('');
@@ -283,8 +367,20 @@ export async function submitCommand(options: SubmitOptions): Promise<void> {
       console.error('  git add .');
       console.error('  git cherry-pick --continue');
 
-      // Tip for CHANGELOG conflicts (common pattern)
-      if (conflictedFiles.some(f => f.toLowerCase().includes('changelog'))) {
+      // Conditional CHANGELOG tip:
+      // - Only show if CHANGELOG.md exists
+      // - Only show if checkpoint doesn't already modify CHANGELOG.md
+      // - Suppress if CHANGELOG is in conflicted files (already mentioned above)
+      const changelogPath = path.join(options.repo, 'CHANGELOG.md');
+      const changelogExists = fs.existsSync(changelogPath);
+      const checkpointModifiesChangelog = (await getFilesInCommit(options.repo, checkpointSha))
+        .some(f => f.toLowerCase().includes('changelog'));
+      const changelogInConflicts = conflictedFiles.some(f => f.toLowerCase().includes('changelog'));
+
+      if (changelogExists && !checkpointModifiesChangelog && !changelogInConflicts) {
+        console.error('');
+        console.error('If this adds new features, consider updating CHANGELOG.md.');
+      } else if (changelogInConflicts) {
         console.error('');
         console.error('Tip: CHANGELOG.md conflicts are common; consider moving');
         console.error('     changelog updates into a dedicated task.');

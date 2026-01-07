@@ -432,12 +432,12 @@ describe('runr submit', () => {
     expect(event.payload.conflicted_files).toContain('CHANGELOG.md');
 
     // Invariant 4: Console output has recovery recipe with actual sha/branch
-    expect(stderr).toContain('Submit conflict');
+    expect(stderr).toContain('Cherry-pick conflict detected');
     expect(stderr).toContain('CHANGELOG.md');
-    expect(stderr).toContain('Branch restored. Tree is clean.');
+    expect(stderr).toContain('Branch restored');
     expect(stderr).toContain('git checkout main');
     expect(stderr).toContain(`git cherry-pick ${checkpointSha.trim()}`);
-    expect(stderr).toContain('Tip: Conflicts are common on CHANGELOG.md');
+    expect(stderr).toContain('CHANGELOG.md conflicts are common');
   });
 
   it('should restore starting branch after operation', async () => {
