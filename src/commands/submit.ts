@@ -248,32 +248,45 @@ export async function submitCommand(options: SubmitOptions): Promise<void> {
       const currentBranch = await getCurrentBranch(options.repo);
       const branchRestored = currentBranch === startingBranch;
 
-      // Print conflict message with recovery recipe
+      // Print conflict message with recovery recipe (exact spec format)
       console.error('');
-      console.error('⚠️  Submit conflict');
+      console.error('Cherry-pick conflict detected.');
       console.error('');
-      console.error(`Files:  ${conflictedFiles.join(', ')}`);
+      console.error(`Checkpoint: ${checkpointSha}`);
+      console.error(`Target: ${targetBranch}`);
       console.error('');
-
-      if (branchRestored && treeClean) {
-        console.error('Branch restored. Tree is clean.');
-      } else if (!branchRestored) {
-        console.error(`⚠️  Warning: Could not restore to ${startingBranch}. Currently on ${currentBranch}.`);
-      } else if (!treeClean) {
-        console.error('⚠️  Warning: Tree is not clean after abort. Run: git status');
+      console.error('Conflicted files:');
+      for (const file of conflictedFiles) {
+        console.error(`  - ${file}`);
       }
-
       console.error('');
-      console.error('Resolve manually:');
+
+      // Recovery state with checkmarks
+      console.error('Recovery state:');
+      if (branchRestored) {
+        console.error(`  ✓ Branch restored to ${startingBranch}`);
+      } else {
+        console.error(`  ✗ Branch NOT restored (currently on ${currentBranch})`);
+      }
+      if (treeClean) {
+        console.error('  ✓ Working tree is clean');
+      } else {
+        console.error('  ✗ Working tree is NOT clean');
+      }
+      console.error('');
+
+      // Copy-paste ready recovery commands
+      console.error('To resolve manually:');
       console.error(`  git checkout ${targetBranch}`);
       console.error(`  git cherry-pick ${checkpointSha}`);
-      console.error('  # fix conflicts');
-      console.error('  git add . && git commit --no-edit');
+      console.error('  # resolve conflicts');
+      console.error('  git add .');
+      console.error('  git cherry-pick --continue');
 
       // Tip for CHANGELOG conflicts (common pattern)
       if (conflictedFiles.some(f => f.toLowerCase().includes('changelog'))) {
         console.error('');
-        console.error('Tip: Conflicts are common on CHANGELOG.md; consider moving');
+        console.error('Tip: CHANGELOG.md conflicts are common; consider moving');
         console.error('     changelog updates into a dedicated task.');
       }
 

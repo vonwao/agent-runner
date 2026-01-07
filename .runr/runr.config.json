@@ -73,7 +73,7 @@
   },
   "phases": {
     "plan": "claude",
-    "implement": "codex",
+    "implement": "claude",
     "review": "claude"
   },
   "resilience": {
