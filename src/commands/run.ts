@@ -18,6 +18,7 @@ import {
   formatAllowlistWarning
 } from '../supervisor/collision.js';
 import { updateActiveState, clearActiveState } from './hooks.js';
+import { printStopFooter, buildNextSteps } from '../output/stop-footer.js';
 
 export interface RunOptions {
   repo: string;
@@ -668,6 +669,11 @@ export async function runCommand(options: RunOptions): Promise<void> {
         status: 'STOPPED',
         stop_reason: finalState.stop_reason
       });
+
+      // Print stop footer with next steps (unless JSON mode)
+      if (!options.json) {
+        printStopFooter(finalState);
+      }
     }
   }
 
