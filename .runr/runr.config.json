@@ -92,6 +92,7 @@
     "integration_branch": "dev",
     "submit_strategy": "cherry-pick",
     "require_clean_tree": true,
-    "require_verification": true
+    "require_verification": true,
+    "mode": "flow"
   }
 }

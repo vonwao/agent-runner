@@ -18,6 +18,7 @@ import {
   type CaptureMode
 } from '../receipt/intervention.js';
 import { getCurrentMode, checkModeRestriction } from './mode.js';
+import { checkAmendAllowed } from '../guards/checkpoint.js';
 
 export interface InterveneOptions {
   repo: string;
@@ -54,7 +55,25 @@ const VALID_REASONS: InterventionReason[] = [
 export async function interveneCommand(options: InterveneOptions): Promise<void> {
   const { repo, reason, note, commands, json, cmdOutput, noRedact, since, commit, amendLast, stageOnly, force } = options;
 
-  // Check mode restrictions for --amend-last
+  // Get workflow mode for error messages
+  const workflowMode = getCurrentMode(repo);
+  const isLedgerMode = workflowMode === 'ledger';
+
+  // Check if HEAD is a checkpoint commit (blocks amend even in Flow mode)
+  if (amendLast) {
+    const checkpointCheck = checkAmendAllowed(repo, force, isLedgerMode);
+    if (!checkpointCheck.allowed) {
+      console.error(checkpointCheck.error);
+      process.exitCode = 1;
+      return;
+    }
+    // Print warning if force was used on checkpoint
+    if (checkpointCheck.error && force) {
+      console.error(checkpointCheck.error);
+    }
+  }
+
+  // Check mode restrictions for --amend-last (Ledger mode blocks all amends)
   if (amendLast) {
     const check = checkModeRestriction(repo, 'amend_last', force);
     if (!check.allowed) {
@@ -84,9 +103,6 @@ export async function interveneCommand(options: InterveneOptions): Promise<void>
 
   // Get run store
   const runStore = RunStore.init(runId, repo);
-
-  // Get workflow mode from config
-  const workflowMode = getCurrentMode(repo);
 
   // Write intervention receipt
   try {
