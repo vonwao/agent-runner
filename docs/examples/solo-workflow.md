@@ -2,6 +2,20 @@
 
 **The canonical copy-paste reference for solo development with Runr.**
 
+---
+
+## ⚠️ CRITICAL SAFETY RULE ⚠️
+
+**Do not run agents on uncommitted work. Commit or stash first.**
+
+If `git status --porcelain` shows any output, **stop**. Commit your changes or stash them before running Runr tasks.
+
+**Why:** Agents can delete files, "clean up" code, or make mistakes. Uncommitted work is not backed up by git. One ambiguous "cleanup" instruction can lose hours of work.
+
+**The rule:** Always start clean. No exceptions.
+
+---
+
 This document answers:
 - What commands do I run, in order?
 - What files does Runr create, and what do I commit?
@@ -124,10 +138,16 @@ A meta-agent is just an operator that **drives the Runr workflow**. Two modes:
 
 ### Mode A: Meta-Agent Uses Runr Directly (Recommended)
 
+**Meta-agents must obey the Safety Contract:**
+
+1. **Never delete on dirty tree** - Check `git status --porcelain` first
+2. **Never delete outside `.runr/` without explicit file list** - Don't assume "cleanup"
+3. **Must end with bundle + dry-run** - Always generate review artifact
+
 **You tell the meta-agent:**
 ```
 "Implement user authentication. Use Runr solo workflow.
-Do not clean up or delete files unless working tree is clean."
+Follow the meta-agent safety contract in CLAUDE.md."
 ```
 
 **Meta-agent does (automatically):**

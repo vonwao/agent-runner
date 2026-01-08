@@ -160,12 +160,16 @@ export async function runPreflight(
   }
 
   // Check worker binaries exist (cheaper than ping, catches "command not found")
+  // Only check workers that are actually used by phases
   const workers = options.config.workers;
+  const phases = options.config.phases;
+  const usedWorkers = new Set<string>([phases.plan, phases.implement, phases.review]);
+
   const binaryCheckPromises: Promise<BinaryCheckResult>[] = [];
-  if (workers.claude) {
+  if (workers.claude && usedWorkers.has('claude')) {
     binaryCheckPromises.push(checkWorkerBinary('claude', workers.claude));
   }
-  if (workers.codex) {
+  if (workers.codex && usedWorkers.has('codex')) {
     binaryCheckPromises.push(checkWorkerBinary('codex', workers.codex));
   }
   const binaryResults = await Promise.all(binaryCheckPromises);
@@ -194,12 +198,12 @@ export async function runPreflight(
   } else {
     const pingResults: PingResult[] = [];
 
-    // Ping all configured workers in parallel
+    // Ping all workers that are actually used by phases
     const pingPromises: Promise<PingResult>[] = [];
-    if (workers.claude) {
+    if (workers.claude && usedWorkers.has('claude')) {
       pingPromises.push(pingClaude(workers.claude));
     }
-    if (workers.codex) {
+    if (workers.codex && usedWorkers.has('codex')) {
       pingPromises.push(pingCodex(workers.codex));
     }
 

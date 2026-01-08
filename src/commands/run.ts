@@ -17,6 +17,10 @@ import {
   checkAllowlistOverlaps,
   formatAllowlistWarning
 } from '../supervisor/collision.js';
+import { updateActiveState, clearActiveState } from './hooks.js';
+import { printStopFooter, buildNextSteps } from '../output/stop-footer.js';
+import { computeBrain } from '../ux/brain.js';
+import { resolveRepoState } from '../ux/state.js';
 
 export interface RunOptions {
   repo: string;
@@ -269,6 +273,17 @@ export async function runCommand(options: RunOptions): Promise<void> {
   const ownsRaw = taskMetadata.owns_raw;
   const ownsNormalized = taskMetadata.owns_normalized;
 
+  // Merge task-local allowlist_add with config allowlist (additive only)
+  const effectiveAllowlist = [
+    ...config.scope.allowlist,
+    ...taskMetadata.allowlist_add
+  ];
+
+  // Log if task has local scope additions
+  if (taskMetadata.allowlist_add.length > 0 && !options.json) {
+    console.log(`Task-local scope additions: ${taskMetadata.allowlist_add.join(', ')}`);
+  }
+
   // Auto-inject git excludes for agent artifacts BEFORE any git status checks.
   // This prevents .agent/ and .agent-worktrees/ from appearing as dirty on fresh repos.
   ensureRepoInfoExclude(repoPath, [
@@ -311,7 +326,7 @@ export async function runCommand(options: RunOptions): Promise<void> {
   if (!options.forceParallel) {
     const activeRuns = getActiveRuns(repoPath);
     if (activeRuns.length > 0) {
-      const overlaps = checkAllowlistOverlaps(config.scope.allowlist, activeRuns);
+      const overlaps = checkAllowlistOverlaps(effectiveAllowlist, activeRuns);
       if (overlaps.length > 0) {
         console.warn('');
         console.warn(formatAllowlistWarning(overlaps));
@@ -323,7 +338,7 @@ export async function runCommand(options: RunOptions): Promise<void> {
   let freshTargetRoot: string | null = null;
   if (options.freshTarget) {
     try {
-      freshTargetRoot = await freshenTargetRoot(repoPath, config.scope.allowlist);
+      freshTargetRoot = await freshenTargetRoot(repoPath, effectiveAllowlist);
       console.log(`Fresh target: cleaned ${freshTargetRoot}`);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unknown error';
@@ -507,7 +522,7 @@ export async function runCommand(options: RunOptions): Promise<void> {
           raw: ownsRaw,
           normalized: ownsNormalized
         },
-        allowlist: config.scope.allowlist,
+        allowlist: effectiveAllowlist,
         denylist: config.scope.denylist
       });
       state.current_branch = preflight.repo_context.current_branch;
@@ -571,7 +586,7 @@ export async function runCommand(options: RunOptions): Promise<void> {
       raw: ownsRaw,
       normalized: ownsNormalized
     },
-    allowlist: config.scope.allowlist,
+    allowlist: effectiveAllowlist,
     denylist: config.scope.denylist
   });
   state.current_branch = preflight.repo_context.current_branch;
@@ -623,6 +638,13 @@ export async function runCommand(options: RunOptions): Promise<void> {
 
   if (runStore) {
     runStore.writeSummary('# Summary\n\nRun initialized. Supervisor loop not yet executed.');
+
+    // Update sentinel file to indicate run is active
+    updateActiveState(options.repo, {
+      run_id: runId,
+      status: 'RUNNING'
+    });
+
     await runSupervisorLoop({
       runStore,
       repoPath: effectiveRepoPath,
@@ -636,6 +658,61 @@ export async function runCommand(options: RunOptions): Promise<void> {
       forceParallel: options.forceParallel,
       ownedPaths: ownsNormalized
     });
+
+    // Update sentinel file based on final run state
+    const finalState = runStore.readState();
+    if (finalState.stop_reason === 'complete') {
+      // Run finished successfully
+      clearActiveState(options.repo);
+    } else if (finalState.stop_reason) {
+      // Run stopped with an error
+      updateActiveState(options.repo, {
+        run_id: runId,
+        status: 'STOPPED',
+        stop_reason: finalState.stop_reason
+      });
+
+      // Print stop footer with next steps (unless JSON mode)
+      if (!options.json) {
+        // Extract review loop data from timeline if available
+        let reviewLoopData: {
+          reviewRound?: number;
+          maxReviewRounds?: number;
+          reviewerRequests?: string[];
+          commandsToSatisfy?: string[];
+        } | undefined;
+
+        if (finalState.stop_reason === 'review_loop_detected') {
+          // Find the review_loop_detected event in the timeline
+          const events = runStore.readTimeline();
+          const reviewLoopEvent = events.find((e: { type: string }) => e.type === 'review_loop_detected');
+          if (reviewLoopEvent?.payload) {
+            const payload = reviewLoopEvent.payload as {
+              review_rounds?: number;
+              max_review_rounds?: number;
+              reviewer_requests?: string[];
+              commands_to_satisfy?: string[];
+            };
+            reviewLoopData = {
+              reviewRound: payload.review_rounds,
+              maxReviewRounds: payload.max_review_rounds,
+              reviewerRequests: payload.reviewer_requests,
+              commandsToSatisfy: payload.commands_to_satisfy
+            };
+          }
+        }
+
+        // Compute brain actions for consistent UX across front door, continue, and stop-footer
+        const repoState = await resolveRepoState(options.repo);
+        const brainOutput = computeBrain({
+          state: repoState,
+          stopDiagnosis: null,  // Diagnosis not available yet at stop time
+          stopExplainer: null,
+        });
+
+        printStopFooter(finalState, reviewLoopData, brainOutput.actions);
+      }
+    }
   }
 
   if (!options.json) {

@@ -30,11 +30,16 @@ import { runVerification } from '../verification/engine.js';
 import { stopRun, updatePhase, prepareForResume } from './state-machine.js';
 import { buildJournal } from '../journal/builder.js';
 import { renderJournal } from '../journal/renderer.js';
+import { writeReceipt, extractBaseSha, deriveTerminalState, printRunReceipt } from '../receipt/writer.js';
 import {
   getActiveRuns,
   checkFileCollisions,
   formatFileCollisionError
 } from './collision.js';
+import {
+  parseReviewFeedback,
+  mapToCommand
+} from '../review/check-parser.js';
 import {
   validateNoChangesEvidence,
   formatEvidenceErrors
@@ -772,6 +777,53 @@ async function runSupervisorOnce(options: SupervisorOptions): Promise<void> {
     } catch (err) {
       // Never crash on journal generation failure
       console.warn(`Warning: Failed to generate journal: ${(err as Error).message}`);
+    }
+
+    // Auto-write receipt artifacts at terminal state and print Run Receipt
+    try {
+      const finalState = options.runStore.readState();
+      if (finalState.phase === 'STOPPED') {
+        const baseSha = extractBaseSha(options.runStore.path);
+        const terminalState = deriveTerminalState(finalState.stop_reason);
+        const verificationTier = finalState.last_verification_evidence?.tiers_run?.[0] ?? null;
+
+        const result = await writeReceipt({
+          runStore: options.runStore,
+          repoPath: options.repoPath,
+          baseSha,
+          checkpointSha: finalState.checkpoint_commit_sha ?? null,
+          verificationTier,
+          terminalState,
+          stopReason: finalState.stop_reason,
+          runId: finalState.run_id
+        });
+
+        // Print Run Receipt to console
+        if (result) {
+          // Read diffstat for console output
+          const diffstatPath = path.join(options.runStore.path, 'diffstat.txt');
+          const diffstat = fs.existsSync(diffstatPath)
+            ? fs.readFileSync(diffstatPath, 'utf-8')
+            : '';
+
+          // Get integration branch from config
+          const integrationBranch = options.config?.workflow?.integration_branch ?? 'main';
+
+          printRunReceipt({
+            runId: finalState.run_id,
+            terminalState,
+            stopReason: finalState.stop_reason,
+            receipt: result.receipt,
+            patchPath: result.patchPath,
+            compressed: result.compressed,
+            diffstat,
+            integrationBranch
+          });
+        }
+      }
+    } catch (err) {
+      // Never crash on receipt generation failure
+      console.warn(`Warning: Failed to generate receipt: ${(err as Error).message}`);
     }
   }
 }
@@ -1518,6 +1570,12 @@ async function handleReview(state: RunState, options: SupervisorOptions): Promis
 
     if (sameFingerprint || exceededRounds) {
       const reason = sameFingerprint ? 'identical_review_feedback' : 'max_review_rounds_exceeded';
+
+      // Parse review changes to extract actionable commands
+      const parsedReview = parseReviewFeedback(changesText);
+      const reviewerRequests = review.changes.slice(0, 5);
+      const commandsToSatisfy = parsedReview.commandsToSatisfy;
+
       options.runStore.appendEvent({
         type: 'review_loop_detected',
         source: 'supervisor',
@@ -1526,25 +1584,59 @@ async function handleReview(state: RunState, options: SupervisorOptions): Promis
           review_rounds: currentRounds,
           max_review_rounds: maxRounds,
           same_fingerprint: sameFingerprint,
-          last_changes: review.changes.slice(0, 2) // First 2 items for context
+          last_changes: review.changes.slice(0, 2), // First 2 items for context
+          // Enhanced fields for diagnostics
+          reviewer_requests: reviewerRequests,
+          commands_to_satisfy: commandsToSatisfy
         }
       });
 
-      // Write review digest for debugging
+      // Write enhanced review digest for debugging
       const digestLines = [
         '# Review Digest',
         '',
         `**Milestone:** ${state.milestone_index + 1} of ${state.milestones.length}`,
-        `**Review Rounds:** ${currentRounds}`,
+        `**Review Rounds:** ${currentRounds} (max: ${maxRounds})`,
         `**Stop Reason:** ${reason}`,
         '',
-        '## Last Requested Changes',
+        '## Reviewer Requested Changes',
         '',
         ...review.changes.map((change, i) => `${i + 1}. ${change}`),
-        '',
-        '## Status',
-        `- **Verdict:** ${review.status}`
+        ''
       ];
+
+      // Add commands to satisfy section if we found any
+      if (commandsToSatisfy.length > 0) {
+        digestLines.push('## Commands to Satisfy');
+        digestLines.push('');
+        digestLines.push('Run these commands to address the requested changes:');
+        digestLines.push('');
+        digestLines.push('```bash');
+        commandsToSatisfy.forEach(cmd => digestLines.push(cmd));
+        digestLines.push('```');
+        digestLines.push('');
+      }
+
+      // Add suggested intervention
+      digestLines.push('## Suggested Intervention');
+      digestLines.push('');
+      if (commandsToSatisfy.length > 0) {
+        const cmdArgs = commandsToSatisfy.map(c => `--cmd "${c}"`).join(' ');
+        digestLines.push('```bash');
+        digestLines.push(`runr intervene ${state.run_id} --reason review_loop \\`);
+        digestLines.push(`  --note "Fixed review requests" ${cmdArgs}`);
+        digestLines.push('```');
+      } else {
+        digestLines.push('```bash');
+        digestLines.push(`runr intervene ${state.run_id} --reason review_loop \\`);
+        digestLines.push(`  --note "Fixed review requests" --cmd "npm run build"`);
+        digestLines.push('```');
+      }
+
+      digestLines.push('');
+      digestLines.push('## Status');
+      digestLines.push(`- **Verdict:** ${review.status}`);
+
       options.runStore.writeMemo('review_digest.md', digestLines.join('\n'));
 
       const errorMsg = sameFingerprint

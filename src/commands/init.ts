@@ -303,6 +303,11 @@ function buildConfig(repoPath: string, detection: DetectionResult, workflowProfi
       auto_resume_delays_ms: [30000, 120000, 300000],
       max_worker_call_minutes: 45,
       max_review_rounds: 2
+    },
+    receipts: {
+      redact: true,
+      capture_cmd_output: 'truncated',
+      max_output_bytes: 10240
     }
   };
 
@@ -433,7 +438,7 @@ export async function initCommand(options: InitOptions): Promise<void> {
     pack = loadPackByName(options.pack);
     if (!pack) {
       console.error(`Error: Pack "${options.pack}" not found`);
-      console.error('Run "runr packs" to see available packs');
+      console.error('Run "runr tools packs" to see available packs');
       process.exit(1);
     }
     if (!pack.validation.valid) {
@@ -467,6 +472,7 @@ export async function initCommand(options: InitOptions): Promise<void> {
     if (!config.workflow) {
       config.workflow = {
         profile: packDefaults.profile || 'solo',
+        mode: packDefaults.mode || 'flow',
         integration_branch: packDefaults.integration_branch || 'main',
         submit_strategy: 'cherry-pick',
         require_clean_tree: packDefaults.require_clean_tree ?? true,
