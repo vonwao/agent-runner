@@ -4,7 +4,25 @@
 
 ![Failure Recovery](demo/failure-checkpoint.gif)
 
-## 60-second demo
+## Try it (2 minutes)
+
+```bash
+npx @weldr/runr@latest init --demo
+cd runr-demo
+npm install
+runr
+runr run --task .runr/tasks/00-success.md
+runr continue
+runr report latest
+```
+
+The demo creates a self-contained TypeScript project with three tasks that show the full loop: success, intentional failure + recovery, and scope violation.
+
+**Runr is language-agnostic.** The demo is JS/TS because it's the fastest proof. Other languages work by swapping verification commands.
+
+---
+
+## In your own repo
 
 ```bash
 npm install -g @weldr/runr
@@ -16,7 +34,7 @@ runr run --task .runr/tasks/example-task.md
 # If it stops, do the obvious next thing
 runr continue
 
-# Inspect what happened (receipts, diffs, logs)
+# Inspect what happened
 runr report latest
 ```
 
