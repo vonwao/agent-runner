@@ -19,6 +19,12 @@ import type { StopDiagnostics } from '../diagnosis/stop-explainer.js';
 import type { CanonicalCommand } from '../ux/safe-commands.js';
 import { getRunsRoot } from '../store/runs-root.js';
 import { resumeCommand } from './resume.js';
+import {
+  recordContinueAttempt,
+  recordAutoFixStep,
+  recordContinueFailed,
+  recordContinueSuccess,
+} from '../ux/telemetry.js';
 
 export interface ContinueOptions {
   repo: string;
@@ -168,6 +174,9 @@ async function executeAutoFix(
       logPath: logFileName,
     });
 
+    // Record telemetry for each step
+    recordAutoFixStep(repoPath, runId, i, cmd.raw, result.exitCode);
+
     // Check for failure
     if (result.exitCode !== 0) {
       console.log(`  Failed (exit ${result.exitCode})`);
@@ -259,6 +268,17 @@ export async function continueCommand(options: ContinueOptions): Promise<void> {
 
   const strategy = brainOutput.continueStrategy;
 
+  // Extract runId for telemetry (varies by strategy type)
+  const runIdForTelemetry =
+    strategy.type === 'auto_resume' || strategy.type === 'auto_fix'
+      ? strategy.runId
+      : strategy.type === 'manual'
+        ? strategy.runId
+        : undefined;
+
+  // Record continue attempt
+  recordContinueAttempt(repoPath, runIdForTelemetry, strategy);
+
   // Route based on strategy
   switch (strategy.type) {
     case 'auto_resume': {
@@ -272,6 +292,7 @@ export async function continueCommand(options: ContinueOptions): Promise<void> {
         repo: repoPath,
         autoResume: true,
       });
+      recordContinueSuccess(repoPath, strategy.runId, 'auto_resume');
       break;
     }
 
@@ -280,6 +301,7 @@ export async function continueCommand(options: ContinueOptions): Promise<void> {
       if (state.mode === 'ledger' && !options.force) {
         console.error('Error: Ledger mode requires --force for auto-fix.');
         console.error('Suggested: runr continue --force');
+        recordContinueFailed(repoPath, strategy.runId, 'ledger_mode_requires_force');
         process.exitCode = 1;
         return;
       }
@@ -288,6 +310,7 @@ export async function continueCommand(options: ContinueOptions): Promise<void> {
       if (state.mode === 'ledger' && state.treeStatus === 'dirty' && !options.force) {
         console.error('Error: Working tree is dirty and mode is ledger.');
         console.error('Commit or stash changes first, or use --force.');
+        recordContinueFailed(repoPath, strategy.runId, 'dirty_tree_in_ledger_mode');
         process.exitCode = 1;
         return;
       }
@@ -308,6 +331,7 @@ export async function continueCommand(options: ContinueOptions): Promise<void> {
         console.log(`  1) runr report ${strategy.runId}`);
         console.log(`  2) runr intervene ${strategy.runId} --reason auto_fix_failed --note "..."`);
         console.log(`  3) runr resume ${strategy.runId}`);
+        recordContinueFailed(repoPath, strategy.runId, 'auto_fix_command_failed', artifact.failedAt);
         process.exitCode = 1;
         return;
       }
@@ -323,14 +347,19 @@ export async function continueCommand(options: ContinueOptions): Promise<void> {
         repo: repoPath,
         autoResume: true,
       });
+      recordContinueSuccess(repoPath, strategy.runId, 'auto_fix');
       break;
     }
 
     case 'continue_orch': {
       console.log(`Continuing orchestration ${strategy.orchestratorId}...`);
-      // TODO: Implement orchestration continuation
-      // For now, print suggestion
-      console.log(`Run: runr orchestrate resume ${strategy.orchestratorId}`);
+      // Import and call the orchestration resume command
+      const { resumeOrchestrationCommand } = await import('./orchestrate.js');
+      await resumeOrchestrationCommand({
+        orchestratorId: strategy.orchestratorId,
+        repo: repoPath,
+      });
+      recordContinueSuccess(repoPath, undefined, 'continue_orch');
       break;
     }
 
@@ -338,11 +367,13 @@ export async function continueCommand(options: ContinueOptions): Promise<void> {
       console.log(`Cannot auto-continue: ${strategy.blockedReason}`);
       console.log('');
       printFrontDoorAndExit(brainOutput);
+      // Not recording as failure - manual is an expected outcome
       break;
     }
 
     case 'nothing': {
       printFrontDoorAndExit(brainOutput);
+      // Not recording - nothing to do is not a failure
       break;
     }
   }

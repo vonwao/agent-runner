@@ -1,10 +1,8 @@
 /**
  * Stop Footer - Consistent "Next Steps" block for stopped runs.
  *
- * Shows exactly 3 commands:
- * 1. resume - try again
- * 2. intervene - record manual fix
- * 3. audit - see what happened
+ * Shows exactly 3 actions derived from the brain module for consistency
+ * across front door, continue command, and stop footer.
  *
  * For review_loop_detected, also shows:
  * - Reviewer requested items
@@ -13,6 +11,7 @@
  */
 
 import { RunState } from '../types/schemas.js';
+import type { Action } from '../ux/brain.js';
 
 const SEPARATOR = '─'.repeat(50);
 
@@ -113,8 +112,10 @@ export function buildNextSteps(runId: string, stopReason: string): NextSteps {
 
 /**
  * Format stop footer for console output.
+ * If brainActions are provided, uses them for consistent UX across all entry points.
+ * Otherwise falls back to default 3 commands (resume, intervene, audit).
  */
-export function formatStopFooter(ctx: StopContext): string {
+export function formatStopFooter(ctx: StopContext, brainActions?: Action[]): string {
   const lines: string[] = [];
 
   lines.push(SEPARATOR);
@@ -179,10 +180,18 @@ export function formatStopFooter(ctx: StopContext): string {
   lines.push('');
   lines.push('Next steps:');
 
-  const steps = buildNextSteps(ctx.runId, ctx.stopReason);
-  lines.push(`  ${steps.resume}`);
-  lines.push(`  ${steps.intervene}`);
-  lines.push(`  ${steps.audit}`);
+  if (brainActions && brainActions.length >= 3) {
+    // Use brain-computed actions for consistency across UX
+    for (const action of brainActions.slice(0, 3)) {
+      lines.push(`  ${action.command}`);
+    }
+  } else {
+    // Fallback to default commands
+    const steps = buildNextSteps(ctx.runId, ctx.stopReason);
+    lines.push(`  ${steps.resume}`);
+    lines.push(`  ${steps.intervene}`);
+    lines.push(`  ${steps.audit}`);
+  }
 
   lines.push(SEPARATOR);
 
@@ -221,6 +230,7 @@ export function buildStopContext(
 /**
  * Print stop footer to console.
  * If reviewLoopData is provided, includes enhanced diagnostics.
+ * If brainActions is provided, uses them for consistent UX (from brain module).
  */
 export function printStopFooter(
   state: RunState,
@@ -229,9 +239,10 @@ export function printStopFooter(
     maxReviewRounds?: number;
     reviewerRequests?: string[];
     commandsToSatisfy?: string[];
-  }
+  },
+  brainActions?: Action[]
 ): void {
   const ctx = buildStopContext(state, reviewLoopData);
   console.log('');
-  console.log(formatStopFooter(ctx));
+  console.log(formatStopFooter(ctx, brainActions));
 }

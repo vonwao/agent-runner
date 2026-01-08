@@ -32,6 +32,7 @@ import { CollisionPolicy } from './orchestrator/types.js';
 import { resolveRepoState } from './ux/state.js';
 import { computeBrain } from './ux/brain.js';
 import { formatFrontDoor, formatJson as formatBrainJson } from './ux/render.js';
+import { recordFrontDoor } from './ux/telemetry.js';
 import type { StopDiagnosisJson } from './diagnosis/types.js';
 import type { StopDiagnostics } from './diagnosis/stop-explainer.js';
 import fs from 'node:fs';
@@ -890,6 +891,10 @@ async function frontDoorCommand(options: { repo: string; json?: boolean }): Prom
     stopDiagnosis,
     stopExplainer,
   });
+
+  // Record telemetry
+  const runIdForTelemetry = state.latestStopped?.runId ?? state.activeRun?.runId;
+  recordFrontDoor(repoPath, runIdForTelemetry);
 
   // Render output
   if (options.json) {

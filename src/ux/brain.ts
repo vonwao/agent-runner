@@ -319,10 +319,13 @@ function actionsForStoppedManual(stopped: StoppedRunInfo): Action[] {
  * Generate actions for orchestration ready state.
  */
 function actionsForOrchReady(orch: OrchCursor, state: RepoState): Action[] {
+  // Show concrete orchestration command
+  const orchCommand = `runr orchestrate resume ${orch.orchestratorId}`;
+
   return [
     {
       label: 'Continue orchestration',
-      command: 'runr continue',
+      command: orchCommand,
       rationale: `Resume orchestration (${orch.tracksComplete}/${orch.tracksTotal} complete)`,
       primary: true,
     },

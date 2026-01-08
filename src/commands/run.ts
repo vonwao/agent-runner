@@ -19,6 +19,8 @@ import {
 } from '../supervisor/collision.js';
 import { updateActiveState, clearActiveState } from './hooks.js';
 import { printStopFooter, buildNextSteps } from '../output/stop-footer.js';
+import { computeBrain } from '../ux/brain.js';
+import { resolveRepoState } from '../ux/state.js';
 
 export interface RunOptions {
   repo: string;
@@ -700,7 +702,15 @@ export async function runCommand(options: RunOptions): Promise<void> {
           }
         }
 
-        printStopFooter(finalState, reviewLoopData);
+        // Compute brain actions for consistent UX across front door, continue, and stop-footer
+        const repoState = await resolveRepoState(options.repo);
+        const brainOutput = computeBrain({
+          state: repoState,
+          stopDiagnosis: null,  // Diagnosis not available yet at stop time
+          stopExplainer: null,
+        });
+
+        printStopFooter(finalState, reviewLoopData, brainOutput.actions);
       }
     }
   }
