@@ -1,4 +1,20 @@
 #!/usr/bin/env node
+/**
+ * Runr CLI - Phase-gated orchestration for agent tasks
+ *
+ * Core commands (what README should show):
+ *   runr                 - Front door: status + next actions
+ *   runr run             - Start a new run
+ *   runr continue        - Do the obvious next thing
+ *   runr report          - View run details
+ *
+ * Advanced (namespace groups):
+ *   runr orch ...        - Multi-step orchestrations
+ *   runr evidence ...    - Audit trail & bundles
+ *   runr tools ...       - Diagnostics & maintenance
+ *   runr config ...      - Settings
+ */
+
 import { Command } from 'commander';
 import { runCommand } from './commands/run.js';
 import { resumeCommand } from './commands/resume.js';
@@ -47,62 +63,34 @@ if (invokedAs === 'agent') {
 
 program
   .name('runr')
-  .description('Phase-gated orchestration for agent tasks');
+  .description('Phase-gated orchestration for agent tasks')
+  .version('0.7.1');
 
-program
-  .command('init')
-  .description('Initialize Runr configuration for a repository')
-  .option('--repo <path>', 'Path to repository (defaults to current directory)', '.')
-  .option('--pack <name>', 'Workflow pack: solo (dev→main), pr (feature→main), trunk (main only) - run "runr packs" to list')
-  .option('--about <description>', 'Project description for documentation templates')
-  .option('--with-claude', 'Create CLAUDE.md guide for Claude Code integration', false)
-  .option('--dry-run', 'Preview what would be created without making changes', false)
-  .option('--workflow <profile>', 'Workflow profile: solo (dev branch), pr (GitHub PRs), or trunk (main branch)')
-  .option('--interactive', 'Launch interactive setup wizard to configure verification commands', false)
-  .option('--print', 'Display generated config in terminal without writing to disk', false)
-  .option('--force', 'Overwrite existing .runr/runr.config.json if present', false)
-  .action(async (options) => {
-    await initCommand({
-      repo: options.repo,
-      workflow: options.workflow,
-      pack: options.pack,
-      about: options.about,
-      withClaude: options.withClaude,
-      interactive: options.interactive,
-      print: options.print,
-      force: options.force,
-      dryRun: options.dryRun
-    });
-  });
-
-program
-  .command('packs')
-  .description('List available workflow packs')
-  .option('--verbose', 'Show pack loading path')
-  .action(async (options) => {
-    await packsCommand({ verbose: options.verbose });
-  });
+// ============================================================================
+// CORE COMMANDS (what README should show)
+// ============================================================================
 
 program
   .command('run')
-  .option('--repo <path>', 'Target repo path (default: current directory)', '.')
+  .description('Start a new run')
+  .option('--repo <path>', 'Target repo path', '.')
   .requiredOption('--task <path>', 'Task brief file')
   .option('--time <minutes>', 'Time budget in minutes', '120')
-  .option('--config <path>', 'Path to runr.config.json (or agent.config.json)')
+  .option('--config <path>', 'Path to runr.config.json')
   .option('--allow-deps', 'Allow lockfile changes', false)
   .option('--allow-dirty', 'Allow dirty worktree', false)
   .option('--no-branch', 'Do not checkout run branch')
   .option('--no-write', 'Do not write run artifacts')
   .option('--web', 'Allow web access for unblock', false)
   .option('--dry-run', 'Initialize run without executing', false)
-  .option('--max-ticks <count>', 'Max supervisor ticks (default: 50)', '50')
+  .option('--max-ticks <count>', 'Max supervisor ticks', '50')
   .option('--skip-doctor', 'Skip worker health checks', false)
   .option('--fresh-target', 'Wipe target root before starting', false)
   .option('--worktree', 'Create isolated git worktree for this run', false)
-  .option('--fast', 'Fast path: skip PLAN and REVIEW phases for small tasks', false)
-  .option('--auto-resume', 'Auto-resume on transient failures (stall, worker timeout)', false)
-  .option('--force-parallel', 'Bypass file collision checks with active runs', false)
-  .option('--json', 'Output JSON with run_id (for orchestrator consumption)', false)
+  .option('--fast', 'Skip PLAN and REVIEW phases', false)
+  .option('--auto-resume', 'Auto-resume on transient failures', false)
+  .option('--force-parallel', 'Bypass file collision checks', false)
+  .option('--json', 'Output JSON with run_id', false)
   .action(async (options) => {
     const noBranch = options.branch === false;
     const noWrite = options.write === false;
@@ -129,82 +117,29 @@ program
   });
 
 program
-  .command('guards-only')
-  .option('--repo <path>', 'Target repo path (default: current directory)', '.')
-  .requiredOption('--task <path>', 'Task brief file')
-  .option('--config <path>', 'Path to runr.config.json (or agent.config.json)')
-  .option('--allow-deps', 'Allow lockfile changes', false)
-  .option('--allow-dirty', 'Allow dirty worktree', false)
-  .option('--no-write', 'Do not write run artifacts')
+  .command('continue')
+  .description('Continue from where you left off')
+  .option('--repo <path>', 'Target repo path', '.')
+  .option('--confirm', 'Prompt before executing', false)
+  .option('--force', 'Override ledger mode restrictions', false)
+  .option('--json', 'Output JSON', false)
   .action(async (options) => {
-    const noWrite = options.write === false;
-    await guardsOnlyCommand({
+    await continueCommand({
       repo: options.repo,
-      task: options.task,
-      config: options.config,
-      allowDeps: options.allowDeps,
-      allowDirty: options.allowDirty,
-      noWrite
-    });
-  });
-
-program
-  .command('resume')
-  .argument('<runId>', 'Run ID')
-  .option('--repo <path>', 'Target repo path (default: current directory)', '.')
-  .option('--time <minutes>', 'Time budget in minutes', '120')
-  .option('--max-ticks <count>', 'Max supervisor ticks (default: 50)', '50')
-  .option('--allow-deps', 'Allow lockfile changes', false)
-  .option('--config <path>', 'Path to runr.config.json (or agent.config.json)')
-  .option('--force', 'Resume despite env fingerprint mismatch', false)
-  .option('--auto-resume', 'Continue auto-resuming on transient failures', false)
-  .option('--auto-stash', 'Automatically stash uncommitted changes before resume', false)
-  .option('--plan', 'Print resume plan and exit without resuming', false)
-  .option('--json', 'Output resume plan as JSON (implies --plan)', false)
-  .action(async (runId: string, options) => {
-    await resumeCommand({
-      runId,
-      repo: options.repo,
-      time: Number.parseInt(options.time, 10),
-      maxTicks: Number.parseInt(options.maxTicks, 10),
-      allowDeps: options.allowDeps,
-      config: options.config,
+      confirm: options.confirm,
       force: options.force,
-      autoResume: options.autoResume,
-      autoStash: options.autoStash,
-      plan: options.plan,
-      json: options.json
+      json: options.json,
     });
-  });
-
-program
-  .command('status')
-  .argument('[runId]', 'Run ID (defaults to latest)')
-  .option('--repo <path>', 'Target repo path (default: current directory)', '.')
-  .option('--all', 'Show status of all runs', false)
-  .action(async (runId: string | undefined, options) => {
-    if (options.all) {
-      await statusAllCommand({ repo: options.repo });
-    } else {
-      const { findLatestRunId } = await import('./store/run-utils.js');
-      const resolvedRunId = runId || findLatestRunId(options.repo);
-
-      if (!resolvedRunId) {
-        console.error('Error: No runs found. Specify --run-id or create a run first.');
-        process.exit(1);
-      }
-
-      await statusCommand({ runId: resolvedRunId, repo: options.repo });
-    }
   });
 
 program
   .command('report')
+  .description('View run details and KPIs')
   .argument('<runId>', 'Run ID (or "latest")')
-  .option('--repo <path>', 'Target repo path (default: current directory)', '.')
+  .option('--repo <path>', 'Target repo path', '.')
   .option('--tail <count>', 'Tail last N events', '50')
   .option('--kpi-only', 'Show compact KPI summary only')
-  .option('--json', 'Output KPI as JSON (includes next_action and suggested_command)')
+  .option('--json', 'Output KPI as JSON')
   .action(async (runId: string, options) => {
     let resolvedRunId = runId;
     if (runId === 'latest') {
@@ -225,10 +160,310 @@ program
   });
 
 program
+  .command('resume')
+  .description('Resume a stopped run')
+  .argument('<runId>', 'Run ID')
+  .option('--repo <path>', 'Target repo path', '.')
+  .option('--time <minutes>', 'Time budget in minutes', '120')
+  .option('--max-ticks <count>', 'Max supervisor ticks', '50')
+  .option('--allow-deps', 'Allow lockfile changes', false)
+  .option('--config <path>', 'Path to runr.config.json')
+  .option('--force', 'Resume despite env fingerprint mismatch', false)
+  .option('--auto-resume', 'Continue auto-resuming on transient failures', false)
+  .option('--auto-stash', 'Automatically stash uncommitted changes', false)
+  .option('--plan', 'Print resume plan and exit without resuming', false)
+  .option('--json', 'Output resume plan as JSON (implies --plan)', false)
+  .action(async (runId: string, options) => {
+    await resumeCommand({
+      runId,
+      repo: options.repo,
+      time: Number.parseInt(options.time, 10),
+      maxTicks: Number.parseInt(options.maxTicks, 10),
+      allowDeps: options.allowDeps,
+      config: options.config,
+      force: options.force,
+      autoResume: options.autoResume,
+      autoStash: options.autoStash,
+      plan: options.plan,
+      json: options.json
+    });
+  });
+
+program
+  .command('status')
+  .description('Show run status')
+  .argument('[runId]', 'Run ID (defaults to latest)')
+  .option('--repo <path>', 'Target repo path', '.')
+  .option('--all', 'Show status of all runs', false)
+  .action(async (runId: string | undefined, options) => {
+    if (options.all) {
+      await statusAllCommand({ repo: options.repo });
+    } else {
+      const { findLatestRunId } = await import('./store/run-utils.js');
+      const resolvedRunId = runId || findLatestRunId(options.repo);
+
+      if (!resolvedRunId) {
+        console.error('Error: No runs found. Specify --run-id or create a run first.');
+        process.exit(1);
+      }
+
+      await statusCommand({ runId: resolvedRunId, repo: options.repo });
+    }
+  });
+
+// ============================================================================
+// WORKFLOW COMMANDS (still top-level, but "advanced")
+// ============================================================================
+
+program
+  .command('intervene')
+  .description('Record manual work done outside Runr flow')
+  .argument('<runId>', 'Run ID (or "latest")')
+  .requiredOption('--reason <type>', 'Why intervention was needed')
+  .requiredOption('--note <text>', 'Description of what was done')
+  .option('--cmd <command>', 'Command to run and capture', (val, prev: string[]) => [...prev, val], [])
+  .option('--cmd-output <mode>', 'Output capture mode', 'truncated')
+  .option('--no-redact', 'Disable secret redaction')
+  .option('--since <sha>', 'Override base_sha for attribution')
+  .option('--commit <message>', 'Create commit with Runr trailers')
+  .option('--amend-last', 'Amend last commit to add Runr trailers')
+  .option('--stage-only', 'Stage changes but do not commit')
+  .option('--force', 'Force operations even if unsafe')
+  .option('--repo <path>', 'Target repo path', '.')
+  .option('--json', 'Output JSON', false)
+  .action(async (runId: string, options) => {
+    await interveneCommand({
+      repo: options.repo,
+      runId,
+      reason: options.reason,
+      note: options.note,
+      commands: options.cmd,
+      cmdOutput: options.cmdOutput,
+      noRedact: !options.redact,
+      since: options.since,
+      commit: options.commit,
+      amendLast: options.amendLast,
+      stageOnly: options.stageOnly,
+      force: options.force,
+      json: options.json
+    });
+  });
+
+program
+  .command('submit')
+  .description('Submit verified checkpoint to integration branch')
+  .argument('<runId>', 'Run ID to submit')
+  .option('--repo <path>', 'Target repo path', '.')
+  .option('--to <branch>', 'Target branch (default: from workflow config)')
+  .option('--dry-run', 'Preview without making changes', false)
+  .option('--push', 'Push to origin after cherry-pick', false)
+  .option('--config <path>', 'Path to runr.config.json')
+  .action(async (runId: string, options) => {
+    await submitCommand({
+      repo: options.repo,
+      runId,
+      to: options.to,
+      dryRun: options.dryRun,
+      push: options.push,
+      config: options.config
+    });
+  });
+
+program
+  .command('meta')
+  .description('Launch meta-agent with Runr workflow context')
+  .option('--repo <path>', 'Target repo path', '.')
+  .option('--tool <name>', 'Tool to use: auto, claude, codex', 'auto')
+  .option('--allow-dirty', 'Allow uncommitted changes', false)
+  .option('--interactive', 'Ask for permission on each tool use', false)
+  .action(async (options) => {
+    await metaCommand({
+      repo: options.repo,
+      tool: options.tool as 'auto' | 'claude' | 'codex',
+      allowDirty: options.allowDirty,
+      interactive: options.interactive
+    });
+  });
+
+program
+  .command('init')
+  .description('Initialize Runr configuration')
+  .option('--repo <path>', 'Path to repository', '.')
+  .option('--pack <name>', 'Workflow pack: solo, pr, trunk')
+  .option('--about <description>', 'Project description')
+  .option('--with-claude', 'Create CLAUDE.md guide', false)
+  .option('--dry-run', 'Preview without making changes', false)
+  .option('--workflow <profile>', 'Workflow profile: solo, pr, trunk')
+  .option('--interactive', 'Launch interactive setup wizard', false)
+  .option('--print', 'Display generated config without writing', false)
+  .option('--force', 'Overwrite existing config', false)
+  .action(async (options) => {
+    await initCommand({
+      repo: options.repo,
+      workflow: options.workflow,
+      pack: options.pack,
+      about: options.about,
+      withClaude: options.withClaude,
+      interactive: options.interactive,
+      print: options.print,
+      force: options.force,
+      dryRun: options.dryRun
+    });
+  });
+
+// ============================================================================
+// ORCHESTRATION GROUP (runr orch ...)
+// ============================================================================
+
+const orchCmd = program
+  .command('orch')
+  .description('Multi-step orchestrations');
+
+orchCmd
+  .command('run')
+  .description('Start a new orchestration from config')
+  .requiredOption('--config <path>', 'Path to orchestration config file')
+  .option('--repo <path>', 'Target repo path', '.')
+  .option('--time <minutes>', 'Time budget per run', '120')
+  .option('--max-ticks <count>', 'Max supervisor ticks per run', '50')
+  .option('--collision-policy <policy>', 'Policy: serialize, force, fail', 'serialize')
+  .option('--allow-deps', 'Allow lockfile changes', false)
+  .option('--worktree', 'Create isolated git worktree for each run', false)
+  .option('--fast', 'Skip PLAN and REVIEW phases', false)
+  .option('--auto-resume', 'Auto-resume runs on transient failures', false)
+  .option('--dry-run', 'Show planned execution without running', false)
+  .action(async (options) => {
+    const collisionPolicy = options.collisionPolicy as CollisionPolicy;
+    if (!['serialize', 'force', 'fail'].includes(collisionPolicy)) {
+      console.error(`Invalid collision policy: ${collisionPolicy}`);
+      process.exit(1);
+    }
+
+    await orchestrateCommand({
+      config: options.config,
+      repo: options.repo,
+      time: Number.parseInt(options.time, 10),
+      maxTicks: Number.parseInt(options.maxTicks, 10),
+      collisionPolicy,
+      allowDeps: options.allowDeps,
+      worktree: options.worktree,
+      fast: options.fast,
+      autoResume: options.autoResume,
+      dryRun: options.dryRun
+    });
+  });
+
+orchCmd
+  .command('resume')
+  .description('Resume a previously started orchestration')
+  .argument('<orchestratorId>', 'Orchestrator ID (or "latest")')
+  .option('--repo <path>', 'Target repo path', '.')
+  .option('--time <minutes>', 'Override time budget per run')
+  .option('--max-ticks <count>', 'Override max supervisor ticks')
+  .option('--fast', 'Override fast mode')
+  .option('--no-fast', 'Disable fast mode override')
+  .option('--collision-policy <policy>', 'Override collision policy')
+  .action(async (orchestratorId: string, options) => {
+    await resumeOrchestrationCommand({
+      orchestratorId,
+      repo: options.repo,
+      overrides: {
+        time: options.time ? Number.parseInt(options.time, 10) : undefined,
+        maxTicks: options.maxTicks ? Number.parseInt(options.maxTicks, 10) : undefined,
+        fast: options.fast,
+        collisionPolicy: options.collisionPolicy
+      }
+    });
+  });
+
+orchCmd
+  .command('wait')
+  .description('Block until orchestration reaches terminal state')
+  .argument('<orchestratorId>', 'Orchestrator ID (or "latest")')
+  .option('--repo <path>', 'Target repo path', '.')
+  .option('--for <condition>', 'Wait condition: terminal, stop, complete', 'terminal')
+  .option('--timeout <ms>', 'Timeout in milliseconds')
+  .option('--json', 'Output JSON', true)
+  .option('--no-json', 'Output human-readable text')
+  .action(async (orchestratorId: string, options) => {
+    await waitOrchestrationCommand({
+      orchestratorId,
+      repo: options.repo,
+      for: options.for as 'terminal' | 'stop' | 'complete',
+      timeout: options.timeout ? Number.parseInt(options.timeout, 10) : undefined,
+      json: options.json
+    });
+  });
+
+orchCmd
+  .command('receipt')
+  .description('Generate orchestration receipt (manager dashboard)')
+  .argument('<orchestratorId>', 'Orchestrator ID (or "latest")')
+  .option('--repo <path>', 'Target repo path', '.')
+  .option('--json', 'Output JSON instead of markdown', false)
+  .option('--write', 'Write receipt to orchestration directory', false)
+  .action(async (orchestratorId: string, options) => {
+    await receiptCommand({
+      orchestratorId,
+      repo: options.repo,
+      json: options.json,
+      write: options.write
+    });
+  });
+
+// ============================================================================
+// EVIDENCE GROUP (runr evidence ...)
+// ============================================================================
+
+const evidenceCmd = program
+  .command('evidence')
+  .description('Audit trail & evidence bundles');
+
+evidenceCmd
+  .command('bundle')
+  .description('Generate deterministic evidence packet')
+  .argument('<runId>', 'Run ID to bundle')
+  .option('--repo <path>', 'Target repo path', '.')
+  .option('--output <path>', 'Output file path (default: stdout)')
+  .action(async (runId: string, options) => {
+    await bundleCommand({
+      repo: options.repo,
+      runId,
+      output: options.output
+    });
+  });
+
+evidenceCmd
+  .command('audit')
+  .description('View project history by provenance')
+  .option('--repo <path>', 'Target repo path', '.')
+  .option('--range <range>', 'Git range (e.g., main~50..main)')
+  .option('--run <id>', 'Filter to commits for specific run ID')
+  .option('--limit <n>', 'Number of commits to analyze', '50')
+  .option('--json', 'Output JSON', false)
+  .option('--strict', 'Treat inferred attribution as gaps', false)
+  .option('--coverage', 'Output coverage report', false)
+  .option('--fail-under <pct>', 'Exit 1 if coverage < threshold')
+  .option('--fail-under-with-inferred <pct>', 'Exit 1 if inferred coverage < threshold')
+  .action(async (options) => {
+    await auditCommand({
+      repo: options.repo,
+      range: options.range,
+      runId: options.run,
+      limit: parseInt(options.limit, 10),
+      json: options.json,
+      strict: options.strict,
+      coverage: options.coverage,
+      failUnder: options.failUnder ? parseInt(options.failUnder, 10) : undefined,
+      failUnderWithInferred: options.failUnderWithInferred ? parseInt(options.failUnderWithInferred, 10) : undefined
+    });
+  });
+
+evidenceCmd
   .command('summarize')
   .description('Generate summary.json from run KPIs')
   .argument('<runId>', 'Run ID (or "latest")')
-  .option('--repo <path>', 'Target repo path (default: current directory)', '.')
+  .option('--repo <path>', 'Target repo path', '.')
   .action(async (runId: string, options) => {
     let resolvedRunId = runId;
     if (runId === 'latest') {
@@ -242,39 +477,19 @@ program
     await summarizeCommand({ runId: resolvedRunId, repo: options.repo });
   });
 
-program
-  .command('next')
-  .description('Print suggested next command from stop handoff')
-  .argument('<runId>', 'Run ID (or "latest")')
-  .option('--repo <path>', 'Target repo path (default: current directory)', '.')
-  .action(async (runId: string, options) => {
-    let resolvedRunId = runId;
-    if (runId === 'latest') {
-      const latest = findLatestRunId(options.repo);
-      if (!latest) {
-        console.error('No runs found');
-        process.exit(1);
-      }
-      resolvedRunId = latest;
-    }
-    await nextCommand(resolvedRunId, { repo: options.repo });
-  });
+// ============================================================================
+// TOOLS GROUP (runr tools ...)
+// ============================================================================
 
-program
-  .command('compare')
-  .description('Compare KPIs between two runs')
-  .argument('<runA>', 'First run ID')
-  .argument('<runB>', 'Second run ID')
-  .option('--repo <path>', 'Target repo path (default: current directory)', '.')
-  .action(async (runA: string, runB: string, options) => {
-    await compareCommand({ runA, runB, repo: options.repo });
-  });
+const toolsCmd = program
+  .command('tools')
+  .description('Diagnostics & maintenance');
 
-program
+toolsCmd
   .command('doctor')
-  .description('Check worker CLI availability and headless mode')
+  .description('Check worker CLI availability')
   .option('--repo <path>', 'Target repo path', '.')
-  .option('--config <path>', 'Path to runr.config.json (or agent.config.json)')
+  .option('--config <path>', 'Path to runr.config.json')
   .action(async (options) => {
     await doctorCommand({
       repo: options.repo,
@@ -282,11 +497,11 @@ program
     });
   });
 
-program
+toolsCmd
   .command('paths')
-  .description('Display canonical runr directory paths (for scripts and tooling)')
+  .description('Display canonical runr directory paths')
   .option('--repo <path>', 'Target repo path', '.')
-  .option('--json', 'Output JSON (default: true)', true)
+  .option('--json', 'Output JSON', true)
   .option('--no-json', 'Output human-readable table')
   .action(async (options) => {
     await pathsCommand({
@@ -295,12 +510,12 @@ program
     });
   });
 
-program
+toolsCmd
   .command('metrics')
-  .description('Show aggregated metrics across all runs and orchestrations')
+  .description('Show aggregated metrics across runs')
   .option('--repo <path>', 'Target repo path', '.')
-  .option('--days <n>', 'Number of days to aggregate (default: 30)', '30')
-  .option('--window <n>', 'Max runs to consider (default: 50 runs, 20 orchestrations)')
+  .option('--days <n>', 'Number of days to aggregate', '30')
+  .option('--window <n>', 'Max runs to consider')
   .option('--json', 'Output JSON format', false)
   .action(async (options) => {
     await metricsCommand({
@@ -311,21 +526,25 @@ program
     });
   });
 
-program
-  .command('version')
-  .description('Show version information')
-  .option('--json', 'Output JSON format', false)
+toolsCmd
+  .command('gc')
+  .description('Clean up old worktree directories')
+  .option('--repo <path>', 'Target repo path', '.')
+  .option('--dry-run', 'Preview what would be deleted', false)
+  .option('--older-than <days>', 'Only delete worktrees older than N days', '7')
   .action(async (options) => {
-    await versionCommand({
-      json: options.json
+    await gcCommand({
+      repo: options.repo,
+      dryRun: options.dryRun,
+      olderThan: Number.parseInt(options.olderThan, 10)
     });
   });
 
-program
+toolsCmd
   .command('follow')
   .description('Tail run timeline and exit on termination')
-  .argument('[runId]', 'Run ID (or "latest", default: latest running or latest)')
-  .option('--repo <path>', 'Target repo path (default: current directory)', '.')
+  .argument('[runId]', 'Run ID (or "latest")')
+  .option('--repo <path>', 'Target repo path', '.')
   .action(async (runId: string | undefined, options) => {
     let resolvedRunId: string;
 
@@ -346,28 +565,14 @@ program
     await followCommand({ runId: resolvedRunId, repo: options.repo });
   });
 
-program
-  .command('gc')
-  .description('Clean up old worktree directories to reclaim disk space')
-  .option('--repo <path>', 'Target repo path (default: current directory)', '.')
-  .option('--dry-run', 'Preview what would be deleted without actually deleting', false)
-  .option('--older-than <days>', 'Only delete worktrees older than N days', '7')
-  .action(async (options) => {
-    await gcCommand({
-      repo: options.repo,
-      dryRun: options.dryRun,
-      olderThan: Number.parseInt(options.olderThan, 10)
-    });
-  });
-
-program
+toolsCmd
   .command('watch')
-  .description('Watch run progress and optionally auto-resume on failure')
+  .description('Watch run progress with optional auto-resume')
   .argument('<runId>', 'Run ID to watch')
-  .option('--repo <path>', 'Target repo path (default: current directory)', '.')
+  .option('--repo <path>', 'Target repo path', '.')
   .option('--auto-resume', 'Automatically resume on transient failures', false)
-  .option('--max-attempts <N>', 'Maximum auto-resume attempts (default: 3)', '3')
-  .option('--interval <seconds>', 'Poll interval in seconds (default: 5)', '5')
+  .option('--max-attempts <N>', 'Maximum auto-resume attempts', '3')
+  .option('--interval <seconds>', 'Poll interval in seconds', '5')
   .option('--json', 'Output JSON events', false)
   .action(async (runId: string, options) => {
     await watchCommand({
@@ -380,14 +585,14 @@ program
     });
   });
 
-program
+toolsCmd
   .command('wait')
-  .description('Block until run reaches terminal state (for meta-agent coordination)')
+  .description('Block until run reaches terminal state')
   .argument('[runId]', 'Run ID (or "latest")')
-  .option('--repo <path>', 'Target repo path (default: current directory)', '.')
+  .option('--repo <path>', 'Target repo path', '.')
   .option('--for <condition>', 'Wait condition: terminal, stop, complete', 'terminal')
   .option('--timeout <ms>', 'Timeout in milliseconds')
-  .option('--json', 'Output JSON (default: true)', true)
+  .option('--json', 'Output JSON', true)
   .option('--no-json', 'Output human-readable text')
   .action(async (runId: string | undefined, options) => {
     let resolvedRunId: string;
@@ -416,396 +621,72 @@ program
     });
   });
 
-// Hooks subcommands
-const hooksCmd = program
-  .command('hooks')
-  .description('Manage Runr git hooks for provenance tracking');
-
-hooksCmd
-  .command('install')
-  .description('Install Runr git hooks')
-  .option('--repo <path>', 'Target repo path (default: current directory)', '.')
-  .action(async (options) => {
-    await hooksInstallCommand({ repo: options.repo });
-  });
-
-hooksCmd
-  .command('uninstall')
-  .description('Remove Runr git hooks and restore backups')
-  .option('--repo <path>', 'Target repo path (default: current directory)', '.')
-  .action(async (options) => {
-    await hooksUninstallCommand({ repo: options.repo });
-  });
-
-hooksCmd
-  .command('status')
-  .description('Show git hooks status')
-  .option('--repo <path>', 'Target repo path (default: current directory)', '.')
-  .action(async (options) => {
-    await hooksStatusCommand({ repo: options.repo });
-  });
-
-hooksCmd
-  .command('check-commit')
-  .description('Check commit against run state (internal, called by git hook)')
-  .argument('<msgFile>', 'Path to commit message file')
-  .option('--repo <path>', 'Target repo path (default: current directory)', '.')
-  .action(async (msgFile: string, options) => {
-    await checkCommitCommand({ repo: options.repo, msgFile });
-  });
-
-// Orchestrate subcommands
-const orchestrateCmd = program
-  .command('orchestrate')
-  .description('Run multiple tracks of tasks in parallel with collision-aware scheduling');
-
-orchestrateCmd
-  .command('run')
-  .description('Start a new orchestration from config')
-  .requiredOption('--config <path>', 'Path to orchestration config file (YAML or JSON)')
-  .option('--repo <path>', 'Target repo path (default: current directory)', '.')
-  .option('--time <minutes>', 'Time budget per run in minutes', '120')
-  .option('--max-ticks <count>', 'Max supervisor ticks per run', '50')
-  .option('--collision-policy <policy>', 'Collision policy: serialize, force, fail', 'serialize')
-  .option('--allow-deps', 'Allow lockfile changes', false)
-  .option('--worktree', 'Create isolated git worktree for each run', false)
-  .option('--fast', 'Fast path: skip PLAN and REVIEW phases', false)
-  .option('--auto-resume', 'Auto-resume runs on transient failures', false)
-  .option('--dry-run', 'Show planned execution without running', false)
-  .action(async (options) => {
-    const collisionPolicy = options.collisionPolicy as CollisionPolicy;
-    if (!['serialize', 'force', 'fail'].includes(collisionPolicy)) {
-      console.error(`Invalid collision policy: ${collisionPolicy}`);
-      console.error('Valid values: serialize, force, fail');
-      process.exit(1);
-    }
-
-    await orchestrateCommand({
-      config: options.config,
-      repo: options.repo,
-      time: Number.parseInt(options.time, 10),
-      maxTicks: Number.parseInt(options.maxTicks, 10),
-      collisionPolicy,
-      allowDeps: options.allowDeps,
-      worktree: options.worktree,
-      fast: options.fast,
-      autoResume: options.autoResume,
-      dryRun: options.dryRun
-    });
-  });
-
-orchestrateCmd
-  .command('resume')
-  .description('Resume a previously started orchestration')
-  .argument('<orchestratorId>', 'Orchestrator ID to resume (or "latest")')
-  .option('--repo <path>', 'Target repo path (default: current directory)', '.')
-  // Policy override flags (optional, logged if used)
-  .option('--time <minutes>', 'Override time budget per run')
-  .option('--max-ticks <count>', 'Override max supervisor ticks')
-  .option('--fast', 'Override fast mode (skip PLAN/REVIEW)')
-  .option('--no-fast', 'Disable fast mode override')
-  .option('--collision-policy <policy>', 'Override collision policy: serialize, force, fail')
-  .action(async (orchestratorId: string, options) => {
-    await resumeOrchestrationCommand({
-      orchestratorId,
-      repo: options.repo,
-      overrides: {
-        time: options.time ? Number.parseInt(options.time, 10) : undefined,
-        maxTicks: options.maxTicks ? Number.parseInt(options.maxTicks, 10) : undefined,
-        fast: options.fast,
-        collisionPolicy: options.collisionPolicy
+toolsCmd
+  .command('next')
+  .description('Print suggested next command from stop handoff')
+  .argument('<runId>', 'Run ID (or "latest")')
+  .option('--repo <path>', 'Target repo path', '.')
+  .action(async (runId: string, options) => {
+    let resolvedRunId = runId;
+    if (runId === 'latest') {
+      const latest = findLatestRunId(options.repo);
+      if (!latest) {
+        console.error('No runs found');
+        process.exit(1);
       }
-    });
+      resolvedRunId = latest;
+    }
+    await nextCommand(resolvedRunId, { repo: options.repo });
   });
 
-orchestrateCmd
-  .command('wait')
-  .description('Block until orchestration reaches terminal state')
-  .argument('<orchestratorId>', 'Orchestrator ID to wait for (or "latest")')
-  .option('--repo <path>', 'Target repo path (default: current directory)', '.')
-  .option('--for <condition>', 'Wait condition: terminal, stop, complete', 'terminal')
-  .option('--timeout <ms>', 'Timeout in milliseconds')
-  .option('--json', 'Output JSON (default: true)', true)
-  .option('--no-json', 'Output human-readable text')
-  .action(async (orchestratorId: string, options) => {
-    await waitOrchestrationCommand({
-      orchestratorId,
-      repo: options.repo,
-      for: options.for as 'terminal' | 'stop' | 'complete',
-      timeout: options.timeout ? Number.parseInt(options.timeout, 10) : undefined,
-      json: options.json
-    });
+toolsCmd
+  .command('compare')
+  .description('Compare KPIs between two runs')
+  .argument('<runA>', 'First run ID')
+  .argument('<runB>', 'Second run ID')
+  .option('--repo <path>', 'Target repo path', '.')
+  .action(async (runA: string, runB: string, options) => {
+    await compareCommand({ runA, runB, repo: options.repo });
   });
 
-orchestrateCmd
-  .command('receipt')
-  .description('Generate and display orchestration receipt (manager dashboard)')
-  .argument('<orchestratorId>', 'Orchestrator ID (or "latest")')
-  .option('--repo <path>', 'Target repo path (default: current directory)', '.')
-  .option('--json', 'Output JSON instead of markdown', false)
-  .option('--write', 'Write receipt.json and receipt.md to orchestration directory', false)
-  .action(async (orchestratorId: string, options) => {
-    await receiptCommand({
-      orchestratorId,
-      repo: options.repo,
-      json: options.json,
-      write: options.write
-    });
+toolsCmd
+  .command('packs')
+  .description('List available workflow packs')
+  .option('--verbose', 'Show pack loading path')
+  .action(async (options) => {
+    await packsCommand({ verbose: options.verbose });
   });
 
-// ==========================================
-// Edgy aliases (same commands, different vibe)
-// ==========================================
-
-// summon → run
-program
-  .command('summon')
-  .description('Summon a worker to execute a task (alias for "run")')
+toolsCmd
+  .command('guards-only')
+  .description('Run entry guards without executing')
   .option('--repo <path>', 'Target repo path', '.')
   .requiredOption('--task <path>', 'Task brief file')
-  .option('--time <minutes>', 'Time budget in minutes', '120')
   .option('--config <path>', 'Path to runr.config.json')
-  .option('--worktree', 'Create isolated git worktree', false)
-  .option('--fast', 'Skip PLAN and REVIEW phases', false)
-  .option('--auto-resume', 'Auto-resume on transient failures', false)
-  .option('--json', 'Output JSON', false)
+  .option('--allow-deps', 'Allow lockfile changes', false)
+  .option('--allow-dirty', 'Allow dirty worktree', false)
+  .option('--no-write', 'Do not write run artifacts')
   .action(async (options) => {
-    await runCommand({
+    const noWrite = options.write === false;
+    await guardsOnlyCommand({
       repo: options.repo,
       task: options.task,
-      time: Number.parseInt(options.time, 10),
       config: options.config,
-      allowDeps: false,
-      allowDirty: false,
-      web: false,
-      dryRun: false,
-      noBranch: false,
-      noWrite: false,
-      maxTicks: 50,
-      skipDoctor: false,
-      freshTarget: false,
-      worktree: options.worktree,
-      fast: options.fast,
-      autoResume: options.autoResume,
-      forceParallel: false,
-      json: options.json
-    });
-  });
-
-// resurrect → resume
-program
-  .command('resurrect')
-  .description('Resurrect a stopped run from checkpoint (alias for "resume")')
-  .argument('<runId>', 'Run ID')
-  .option('--repo <path>', 'Target repo path', '.')
-  .option('--time <minutes>', 'Time budget in minutes', '120')
-  .option('--force', 'Resume despite env mismatch', false)
-  .action(async (runId: string, options) => {
-    await resumeCommand({
-      runId,
-      repo: options.repo,
-      time: Number.parseInt(options.time, 10),
-      maxTicks: 50,
-      allowDeps: false,
-      config: options.config,
-      force: options.force,
-      autoResume: false
-    });
-  });
-
-// scry → status
-program
-  .command('scry')
-  .description('Scry the fate of a run (alias for "status")')
-  .argument('[runId]', 'Run ID')
-  .option('--repo <path>', 'Target repo path', '.')
-  .option('--all', 'Show all runs', false)
-  .action(async (runId: string | undefined, options) => {
-    if (options.all) {
-      await statusAllCommand({ repo: options.repo });
-    } else if (runId) {
-      await statusCommand({ runId, repo: options.repo });
-    } else {
-      console.error('Error: Run ID required unless using --all');
-      process.exit(1);
-    }
-  });
-
-// banish → gc
-program
-  .command('banish')
-  .description('Banish old worktrees to the void (alias for "gc")')
-  .option('--repo <path>', 'Target repo path', '.')
-  .option('--dry-run', 'Preview without deleting', false)
-  .option('--older-than <days>', 'Only banish worktrees older than N days', '7')
-  .action(async (options) => {
-    await gcCommand({
-      repo: options.repo,
-      dryRun: options.dryRun,
-      olderThan: Number.parseInt(options.olderThan, 10)
-    });
-  });
-
-// journal - Generate case file from run
-program
-  .command('journal')
-  .description('Generate and display journal.md for a run')
-  .argument('[runId]', 'Run ID (defaults to latest)')
-  .option('--repo <path>', 'Target repo path', '.')
-  .option('--output <file>', 'Output file path (defaults to runs/<id>/journal.md)')
-  .option('--force', 'Force regeneration even if up to date', false)
-  .action(async (runId: string | undefined, options) => {
-    await journalCommand({
-      repo: options.repo,
-      runId,
-      output: options.output,
-      force: options.force
-    });
-  });
-
-// note - Add timestamped note to run
-program
-  .command('note <message>')
-  .description('Add a timestamped note to a run')
-  .option('--repo <path>', 'Target repo path', '.')
-  .option('--run-id <id>', 'Run ID (defaults to latest)')
-  .action(async (message: string, options) => {
-    await noteCommand(message, {
-      repo: options.repo,
-      runId: options.runId
-    });
-  });
-
-// open - Open journal.md in editor
-program
-  .command('open')
-  .description('Open journal.md in $EDITOR')
-  .argument('[runId]', 'Run ID (defaults to latest)')
-  .option('--repo <path>', 'Target repo path', '.')
-  .action(async (runId: string | undefined, options) => {
-    await openCommand({
-      repo: options.repo,
-      runId
-    });
-  });
-
-// bundle - Generate evidence packet
-program
-  .command('bundle')
-  .description('Generate deterministic evidence packet for a run')
-  .argument('<runId>', 'Run ID to bundle')
-  .option('--repo <path>', 'Target repo path', '.')
-  .option('--output <path>', 'Output file path (default: stdout)')
-  .action(async (runId: string, options) => {
-    await bundleCommand({
-      repo: options.repo,
-      runId,
-      output: options.output
-    });
-  });
-
-// submit - Submit verified checkpoint
-program
-  .command('submit')
-  .description('Submit verified checkpoint to integration branch')
-  .argument('<runId>', 'Run ID to submit')
-  .option('--repo <path>', 'Target repo path', '.')
-  .option('--to <branch>', 'Target branch (default: from workflow config)')
-  .option('--dry-run', 'Preview without making changes', false)
-  .option('--push', 'Push to origin after cherry-pick', false)
-  .option('--config <path>', 'Path to runr.config.json')
-  .action(async (runId: string, options) => {
-    await submitCommand({
-      repo: options.repo,
-      runId,
-      to: options.to,
-      dryRun: options.dryRun,
-      push: options.push,
-      config: options.config
-    });
-  });
-
-// meta - Launch meta-agent with safety checks
-program
-  .command('meta')
-  .description('Launch meta-agent (Claude Code/Codex) with Runr workflow context')
-  .option('--repo <path>', 'Target repo path', '.')
-  .option('--tool <name>', 'Tool to use: auto (default), claude, codex', 'auto')
-  .option('--allow-dirty', 'Allow uncommitted changes (not recommended)', false)
-  .option('--interactive', 'Ask for permission on each tool use (default: auto-approve)', false)
-  .action(async (options) => {
-    await metaCommand({
-      repo: options.repo,
-      tool: options.tool as 'auto' | 'claude' | 'codex',
+      allowDeps: options.allowDeps,
       allowDirty: options.allowDirty,
-      interactive: options.interactive
+      noWrite
     });
   });
 
-// intervene - Record manual work outside Runr flow
-program
-  .command('intervene')
-  .description('Record manual work done outside Runr flow (creates intervention receipt)')
-  .argument('<runId>', 'Run ID (or "latest")')
-  .requiredOption('--reason <type>', 'Why intervention was needed: review_loop, stalled_timeout, verification_failed, scope_violation, manual_fix, other')
-  .requiredOption('--note <text>', 'Description of what was done')
-  .option('--cmd <command>', 'Command to run and capture (can be repeated)', (val, prev: string[]) => [...prev, val], [])
-  .option('--cmd-output <mode>', 'Output capture mode: full, truncated (default), metadata_only', 'truncated')
-  .option('--no-redact', 'Disable secret redaction in command output')
-  .option('--since <sha>', 'Override base_sha for retroactive attribution (e.g., HEAD~3)')
-  .option('--commit <message>', 'Create commit with message and Runr trailers')
-  .option('--amend-last', 'Amend last commit to add Runr trailers (Flow mode only)')
-  .option('--stage-only', 'Stage changes but do not commit')
-  .option('--force', 'Force operations even if unsafe (e.g., amend in Ledger mode)')
-  .option('--repo <path>', 'Target repo path', '.')
-  .option('--json', 'Output JSON', false)
-  .action(async (runId: string, options) => {
-    await interveneCommand({
-      repo: options.repo,
-      runId,
-      reason: options.reason,
-      note: options.note,
-      commands: options.cmd,
-      cmdOutput: options.cmdOutput,
-      noRedact: !options.redact,
-      since: options.since,
-      commit: options.commit,
-      amendLast: options.amendLast,
-      stageOnly: options.stageOnly,
-      force: options.force,
-      json: options.json
-    });
-  });
+// ============================================================================
+// CONFIG GROUP (runr config ...)
+// ============================================================================
 
-// audit - View project history by provenance
-program
-  .command('audit')
-  .description('View project history classified by provenance (checkpoints, interventions, gaps)')
-  .option('--repo <path>', 'Target repo path', '.')
-  .option('--range <range>', 'Git range (e.g., main~50..main)')
-  .option('--run <id>', 'Filter to commits for specific run ID')
-  .option('--limit <n>', 'Number of commits to analyze (default: 50)', '50')
-  .option('--json', 'Output JSON', false)
-  .option('--strict', 'Strict mode: treat inferred attribution as gaps', false)
-  .option('--coverage', 'Output coverage report (JSON with --json)', false)
-  .option('--fail-under <pct>', 'Exit 1 if explicit coverage < threshold (CI mode)')
-  .option('--fail-under-with-inferred <pct>', 'Exit 1 if inferred coverage < threshold')
-  .action(async (options) => {
-    await auditCommand({
-      repo: options.repo,
-      range: options.range,
-      runId: options.run,
-      limit: parseInt(options.limit, 10),
-      json: options.json,
-      strict: options.strict,
-      coverage: options.coverage,
-      failUnder: options.failUnder ? parseInt(options.failUnder, 10) : undefined,
-      failUnderWithInferred: options.failUnderWithInferred ? parseInt(options.failUnderWithInferred, 10) : undefined
-    });
-  });
+const configCmd = program
+  .command('config')
+  .description('Runr settings');
 
-// mode - View or set workflow mode
-program
+configCmd
   .command('mode')
   .description('View or set workflow mode (flow/ledger)')
   .argument('[mode]', 'Mode to set (flow or ledger)')
@@ -817,22 +698,99 @@ program
     });
   });
 
-// continue - Do the obvious next thing
-program
-  .command('continue')
-  .description('Continue from where you left off (auto-fix/resume/orchestrate)')
+// ============================================================================
+// HOOKS GROUP (runr hooks ...)
+// ============================================================================
+
+const hooksCmd = program
+  .command('hooks')
+  .description('Git hooks for provenance tracking');
+
+hooksCmd
+  .command('install')
+  .description('Install Runr git hooks')
   .option('--repo <path>', 'Target repo path', '.')
-  .option('--confirm', 'Prompt before executing', false)
-  .option('--force', 'Override ledger mode restrictions', false)
-  .option('--json', 'Output JSON', false)
   .action(async (options) => {
-    await continueCommand({
+    await hooksInstallCommand({ repo: options.repo });
+  });
+
+hooksCmd
+  .command('uninstall')
+  .description('Remove Runr git hooks')
+  .option('--repo <path>', 'Target repo path', '.')
+  .action(async (options) => {
+    await hooksUninstallCommand({ repo: options.repo });
+  });
+
+hooksCmd
+  .command('status')
+  .description('Show git hooks status')
+  .option('--repo <path>', 'Target repo path', '.')
+  .action(async (options) => {
+    await hooksStatusCommand({ repo: options.repo });
+  });
+
+hooksCmd
+  .command('check-commit')
+  .description('Check commit against run state (internal)')
+  .argument('<msgFile>', 'Path to commit message file')
+  .option('--repo <path>', 'Target repo path', '.')
+  .action(async (msgFile: string, options) => {
+    await checkCommitCommand({ repo: options.repo, msgFile });
+  });
+
+// ============================================================================
+// JOURNAL GROUP (runr journal ...)
+// ============================================================================
+
+const journalCmd = program
+  .command('journal')
+  .description('Run journals and notes');
+
+journalCmd
+  .command('show')
+  .description('Generate and display journal.md for a run')
+  .argument('[runId]', 'Run ID (defaults to latest)')
+  .option('--repo <path>', 'Target repo path', '.')
+  .option('--output <file>', 'Output file path')
+  .option('--force', 'Force regeneration even if up to date', false)
+  .action(async (runId: string | undefined, options) => {
+    await journalCommand({
       repo: options.repo,
-      confirm: options.confirm,
-      force: options.force,
-      json: options.json,
+      runId,
+      output: options.output,
+      force: options.force
     });
   });
+
+journalCmd
+  .command('note')
+  .description('Add a timestamped note to a run')
+  .argument('<message>', 'Note message')
+  .option('--repo <path>', 'Target repo path', '.')
+  .option('--run-id <id>', 'Run ID (defaults to latest)')
+  .action(async (message: string, options) => {
+    await noteCommand(message, {
+      repo: options.repo,
+      runId: options.runId
+    });
+  });
+
+journalCmd
+  .command('open')
+  .description('Open journal.md in $EDITOR')
+  .argument('[runId]', 'Run ID (defaults to latest)')
+  .option('--repo <path>', 'Target repo path', '.')
+  .action(async (runId: string | undefined, options) => {
+    await openCommand({
+      repo: options.repo,
+      runId
+    });
+  });
+
+// ============================================================================
+// FRONT DOOR & HELP
+// ============================================================================
 
 /**
  * Load diagnosis data for a stopped run.

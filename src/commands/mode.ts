@@ -71,7 +71,7 @@ export function checkModeRestriction(
           error: `Error: --amend-last is not allowed in Ledger mode.
 In Ledger mode, use explicit commits:
   runr intervene <run_id> --commit "message" --reason <reason>
-Or switch to Flow mode with: runr mode flow`
+Or switch to Flow mode with: runr config mode flow`
         };
     }
   }
@@ -177,6 +177,6 @@ export async function modeCommand(options: ModeOptions): Promise<void> {
     }
 
     console.log('');
-    console.log('To change mode: runr mode <flow|ledger>');
+    console.log('To change mode: runr config mode <flow|ledger>');
   }
 }

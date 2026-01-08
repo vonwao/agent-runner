@@ -32,7 +32,7 @@ describe('doctor command', () => {
     stderr: string;
   }> {
     const cliPath = path.resolve(__dirname, '../../../dist/cli.js');
-    const args = ['doctor'];
+    const args = ['tools', 'doctor'];
     if (repoPath) {
       args.push('--repo', repoPath);
     }
@@ -288,7 +288,7 @@ describe('doctor command', () => {
 
       expect(result.stdout).toContain('Worktrees: WARNING');
       expect(result.stdout).toContain('orphaned worktrees');
-      expect(result.stdout).toContain('runr gc');
+      expect(result.stdout).toContain('runr tools gc');
       expect(result.exitCode).toBe(0); // Warning, not error
     });
   });

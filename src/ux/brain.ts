@@ -328,13 +328,13 @@ function actionsForRunning(state: RepoState): Action[] {
     },
     {
       label: 'Follow logs',
-      command: `runr follow ${runId}`,
+      command: `runr tools follow ${runId}`,
       rationale: 'Watch real-time progress',
       primary: false,
     },
     {
       label: 'Wait for completion',
-      command: `runr wait ${runId}`,
+      command: `runr tools wait ${runId}`,
       rationale: 'Block until run finishes',
       primary: false,
     },

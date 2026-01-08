@@ -438,7 +438,7 @@ export async function initCommand(options: InitOptions): Promise<void> {
     pack = loadPackByName(options.pack);
     if (!pack) {
       console.error(`Error: Pack "${options.pack}" not found`);
-      console.error('Run "runr packs" to see available packs');
+      console.error('Run "runr tools packs" to see available packs');
       process.exit(1);
     }
     if (!pack.validation.valid) {

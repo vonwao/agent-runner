@@ -550,7 +550,7 @@ export async function doctorCommand(options: DoctorOptions): Promise<void> {
       console.log(`Worktrees: OK (${worktreeCheck.totalWorktrees} worktrees)`);
     } else {
       console.log(`Worktrees: WARNING - ${worktreeCheck.orphanedWorktrees} orphaned worktrees`);
-      console.log('  Run "runr gc" to clean up orphaned worktrees');
+      console.log('  Run "runr tools gc" to clean up orphaned worktrees');
       // Note: This is a warning, not an error - don't set hasErrors
     }
   } else {
