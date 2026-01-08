@@ -52,7 +52,7 @@ Your git history becomes a provenance chain, not just a commit log.
 - Good for production, compliance
 - Priority: traceability
 
-Switch modes: `runr mode flow` or `runr mode ledger`
+Switch modes: `runr config mode flow` or `runr config mode ledger`
 
 ## Next Steps
 

@@ -134,17 +134,6 @@ See [Workflow Guide](workflow-guide.md) for complete bundle→submit workflow.
 | `runr resume <run_id>` | Resume a stopped run |
 | `runr status` | Show current run status |
 
-### Fun Aliases
-
-Same commands, different vibe:
-
-```bash
-runr summon --task task.md   # run
-runr resurrect <id>          # resume
-runr scry <id>               # status
-runr banish                  # gc
-```
-
 See [CLI Reference](cli.md) for all commands.
 
 ## Canonical Paths

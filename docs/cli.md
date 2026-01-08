@@ -412,19 +412,6 @@ runr tools guard --task <path> [options]
 
 ---
 
-## Fun Aliases
-
-Same commands, different vibe:
-
-| Alias | Maps to | Description |
-|-------|---------|-------------|
-| `runr summon` | `runr run` | Summon a worker to execute a task |
-| `runr resurrect` | `runr resume` | Resurrect a stopped run from checkpoint |
-| `runr scry` | `runr status` | Scry the fate of a run |
-| `runr banish` | `runr gc` | Banish old worktrees to the void |
-
----
-
 ## Orchestration Commands
 
 Multi-track execution with collision-aware scheduling.
@@ -501,24 +488,24 @@ runr orchestrate receipt <orchestratorId|latest> [options]
 
 Commands for recording manual work and tracking provenance.
 
-### runr mode
+### runr config mode
 
 View or switch workflow mode.
 
 ```bash
-runr mode [flow|ledger]
+runr config mode [flow|ledger]
 ```
 
 **Examples:**
 ```bash
 # View current mode
-runr mode
+runr config mode
 
 # Switch to ledger mode (audit-first)
-runr mode ledger
+runr config mode ledger
 
 # Switch to flow mode (productivity-first)
-runr mode flow
+runr config mode flow
 ```
 
 ---

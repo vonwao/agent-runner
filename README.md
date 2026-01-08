@@ -22,7 +22,7 @@ runr report latest
 
 ## What happens when it fails
 
-Runr doesn't "keep going and hope." It stops with a short summary and 3 next actions you can trust:
+Runr doesn't "keep going and hope." It stops with receipts and 3 next actions you can trust:
 
 - **continue** — auto-fix what's safe, then resume
 - **report** — open the run receipt: diffs + logs + timeline
@@ -75,9 +75,11 @@ Complete walkthrough in [dogfood/hello-world/README.md](dogfood/hello-world/READ
 
 ---
 
-## Meta-Agent Mode (Recommended)
+## Meta-Agent Mode
 
-**The easiest way to use Runr:** One command, zero ceremony.
+**The easiest way to use Runr:** one command, zero ceremony.
+
+Best for: longer tasks, multiple milestones, and hands-off recovery.
 
 Runr works as a **reliable execution backend** for meta-agents (Claude Code, Codex CLI). The meta-agent operates Runr for you — handling runs, interpreting failures, and resuming from checkpoints.
 
@@ -94,13 +96,13 @@ The agent will automatically:
 - Use safety playbooks from `.claude/skills/runr-workflow`
 - Have `/runr-bundle`, `/runr-submit`, `/runr-resume` slash commands available
 
-**Safety:** `runr meta` blocks if you have uncommitted changes.
+Tip: start from a clean tree. `runr meta` blocks if you have uncommitted changes.
 
 ---
 
 ## Direct CLI Usage
 
-**CRITICAL: Do not run agents on uncommitted work. Commit or stash first.**
+Tip: start from a clean tree (commit or stash first).
 
 ```bash
 # Install
@@ -133,11 +135,13 @@ Create `.runr/runr.config.json`:
   },
   "verification": {
     "tier0": ["npm run typecheck"],
-    "tier1": ["npm run build"],
-    "tier2": ["npm test"]
+    "tier1": ["npm test"],
+    "tier2": ["npm run build"]
   }
 }
 ```
+
+Tiers run from fast → slow. Keep `tier0` as a quick sanity check.
 
 ### Scope presets
 
@@ -162,12 +166,12 @@ Available: `nextjs`, `react`, `drizzle`, `prisma`, `vitest`, `jest`, `playwright
 | `runr` | Show status and next actions |
 | `runr run --task <file>` | Start a task |
 | `runr continue` | Do the next obvious thing |
-| `runr report <id>` | View run details and KPIs |
+| `runr report <id>` | View run receipt: diffs, logs, timeline |
 | `runr resume <id>` | Resume from checkpoint |
 | `runr intervene <id>` | Record manual work |
 | `runr submit <id> --to <branch>` | Submit verified checkpoint |
 | `runr meta` | Launch meta-agent with workflow context |
-| `runr init` | Initialize config |
+| `runr init` | Initialize Runr in a repo |
 | `runr runs bundle <id>` | Generate evidence bundle |
 | `runr tools doctor` | Check environment health |
 
@@ -241,4 +245,4 @@ Apache 2.0 — See [LICENSE](LICENSE).
 
 ---
 
-<sub>Existence is pain, but shipping is relief.</sub>
+<sub>Shipping beats rerunning the same milestone twice.</sub>

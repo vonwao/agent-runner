@@ -109,12 +109,6 @@ runr run --task .runr/tasks/my-task.md --worktree
 runr run --task .runr/tasks/my-task.md --worktree --time 30
 ```
 
-### Fun mode
-
-```bash
-runr summon --task .runr/tasks/my-task.md --worktree
-```
-
 ## Monitoring
 
 ```bash
@@ -134,7 +128,6 @@ runr report latest
 
 ```bash
 runr resume <run_id>
-# or: runr resurrect <run_id>
 ```
 
 ### Clean up old worktrees
@@ -142,7 +135,6 @@ runr resume <run_id>
 ```bash
 runr gc --dry-run  # Preview
 runr gc            # Delete worktrees older than 7 days
-# or: runr banish --dry-run
 ```
 
 ### View aggregated metrics

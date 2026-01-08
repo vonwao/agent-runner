@@ -49,13 +49,13 @@ Best for:
 
 ```bash
 # View current mode
-runr mode
+runr config mode
 
 # Switch to ledger mode
-runr mode ledger
+runr config mode ledger
 
 # Switch to flow mode
-runr mode flow
+runr config mode flow
 ```
 
 Or set in config:
