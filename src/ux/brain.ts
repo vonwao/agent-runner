@@ -45,6 +45,25 @@ export type ContinueStrategy =
   | { type: 'nothing' };
 
 /**
+ * Analysis of a stopped run - computed booleans for decision making.
+ * These fields are also used for telemetry.
+ */
+export interface StoppedAnalysis {
+  /** Stop reason allows auto-fix AND we have safe commands */
+  autoFixAvailable: boolean;
+  /** autoFixAvailable AND mode permits (flow OR ledger+force) */
+  autoFixPermitted: boolean;
+  /** Working tree has uncommitted changes */
+  treeDirty: boolean;
+  /** Current mode */
+  mode: 'flow' | 'ledger';
+  /** Safe commands available (empty if none) */
+  safeCommands: CanonicalCommand[];
+  /** Reason auto-fix is blocked (if autoFixAvailable but not permitted) */
+  blockReason?: 'ledger_mode' | 'dirty_tree_ledger' | 'unsafe_commands' | 'no_commands';
+}
+
+/**
  * Input to the brain - all the data needed to make decisions.
  */
 export interface BrainInput {
@@ -69,6 +88,8 @@ export interface BrainOutput {
   actions: Action[];
   /** Strategy for continue command */
   continueStrategy: ContinueStrategy;
+  /** Analysis of stopped run (for telemetry/debugging) */
+  stoppedAnalysis?: StoppedAnalysis;
 }
 
 // ============================================================================
@@ -150,6 +171,69 @@ function extractSuggestedCommands(
 }
 
 // ============================================================================
+// Stopped run analysis
+// ============================================================================
+
+/**
+ * Analyze a stopped run to determine auto-fix availability and permissions.
+ * This is the "two boolean" approach that ensures consistent headlines/actions.
+ */
+function analyzeStoppedRun(
+  stopped: StoppedRunInfo,
+  stopDiagnosis: StopDiagnosisJson | null,
+  stopExplainer: StopDiagnostics | null,
+  state: RepoState
+): StoppedAnalysis {
+  const { stopReason } = stopped;
+  const mode = state.mode;
+  const treeDirty = state.treeStatus === 'dirty';
+
+  // Check if stop reason is potentially auto-fixable
+  const isPotentiallyFixable = POTENTIALLY_AUTO_FIXABLE_REASONS.has(stopReason);
+
+  // Extract and filter commands
+  const suggestedCommands = isPotentiallyFixable
+    ? extractSuggestedCommands(stopDiagnosis, stopExplainer)
+    : [];
+  const safeCommands = filterSafeCommands(suggestedCommands);
+
+  // Determine if auto-fix is available (have safe commands for a fixable reason)
+  const autoFixAvailable = isPotentiallyFixable && safeCommands.length > 0;
+
+  // Determine block reason and permission
+  let blockReason: StoppedAnalysis['blockReason'];
+  let autoFixPermitted = false;
+
+  if (autoFixAvailable) {
+    // Flow mode: auto-fix permitted, dirty tree is just informational
+    // Ledger mode: requires clean tree (dirty blocks unless --force, but brain doesn't know --force)
+    if (mode === 'flow') {
+      autoFixPermitted = true;
+    } else {
+      // Ledger mode - blocked (user must use --force to override)
+      autoFixPermitted = false;
+      blockReason = treeDirty ? 'dirty_tree_ledger' : 'ledger_mode';
+    }
+  } else if (isPotentiallyFixable) {
+    // Fixable reason but no safe commands
+    if (suggestedCommands.length > 0) {
+      blockReason = 'unsafe_commands';
+    } else {
+      blockReason = 'no_commands';
+    }
+  }
+
+  return {
+    autoFixAvailable,
+    autoFixPermitted,
+    treeDirty,
+    mode,
+    safeCommands,
+    blockReason,
+  };
+}
+
+// ============================================================================
 // Strategy determination
 // ============================================================================
 
@@ -158,9 +242,7 @@ function extractSuggestedCommands(
  */
 function determineStoppedStrategy(
   stopped: StoppedRunInfo,
-  stopDiagnosis: StopDiagnosisJson | null,
-  stopExplainer: StopDiagnostics | null,
-  mode: 'flow' | 'ledger'
+  analysis: StoppedAnalysis
 ): ContinueStrategy {
   const { runId, stopReason } = stopped;
 
@@ -181,32 +263,37 @@ function determineStoppedStrategy(
     };
   }
 
-  // Potentially auto-fixable - check for safe commands
-  if (POTENTIALLY_AUTO_FIXABLE_REASONS.has(stopReason)) {
-    const suggestedCommands = extractSuggestedCommands(stopDiagnosis, stopExplainer);
-    const safeCommands = filterSafeCommands(suggestedCommands);
+  // Use analysis for potentially auto-fixable reasons
+  if (analysis.autoFixAvailable && analysis.autoFixPermitted) {
+    return {
+      type: 'auto_fix',
+      runId,
+      commands: analysis.safeCommands,
+    };
+  }
 
-    // Only auto-fix in flow mode (ledger would require --force)
-    if (safeCommands.length > 0 && mode === 'flow') {
-      return {
-        type: 'auto_fix',
-        runId,
-        commands: safeCommands,
-      };
-    }
+  // Auto-fix available but blocked
+  if (analysis.autoFixAvailable && !analysis.autoFixPermitted) {
+    const reason = analysis.blockReason === 'dirty_tree_ledger'
+      ? 'Ledger mode + dirty tree requires --force'
+      : 'Ledger mode requires --force';
+    return {
+      type: 'manual',
+      runId,
+      blockedReason: reason,
+    };
+  }
 
-    // Has commands but not safe, or in ledger mode
-    if (suggestedCommands.length > 0) {
-      return {
-        type: 'manual',
-        runId,
-        blockedReason: mode === 'ledger'
-          ? 'Ledger mode requires manual intervention (use --force to override)'
-          : 'Suggested commands are not in safe allowlist',
-      };
-    }
+  // Not auto-fixable - determine why
+  if (analysis.blockReason === 'unsafe_commands') {
+    return {
+      type: 'manual',
+      runId,
+      blockedReason: 'Suggested commands are not in safe allowlist',
+    };
+  }
 
-    // No commands at all - fall back to manual
+  if (analysis.blockReason === 'no_commands') {
     return {
       type: 'manual',
       runId,
@@ -288,7 +375,39 @@ function actionsForStoppedAuto(
 }
 
 /**
- * Generate actions for a stopped state (manual intervention needed).
+ * Generate actions for a stopped state (auto-fix blocked by ledger mode).
+ * Primary action is `runr continue --force` to override the ledger restriction.
+ */
+function actionsForStoppedBlocked(stopped: StoppedRunInfo, analysis: StoppedAnalysis): Action[] {
+  const runId = stopped.runId;
+  const reason = analysis.blockReason === 'dirty_tree_ledger'
+    ? 'Override ledger + dirty tree restriction'
+    : 'Override ledger mode restriction';
+
+  return [
+    {
+      label: 'Continue with force',
+      command: 'runr continue --force',
+      rationale: reason,
+      primary: true,
+    },
+    {
+      label: 'View report',
+      command: `runr report ${runId}`,
+      rationale: 'See what needs fixing',
+      primary: false,
+    },
+    {
+      label: 'Intervene manually',
+      command: `runr intervene ${runId} --reason ${stopped.stopReason} --note "..."`,
+      rationale: 'Fix manually and record it',
+      primary: false,
+    },
+  ];
+}
+
+/**
+ * Generate actions for a stopped state (manual intervention needed, no auto-fix available).
  */
 function actionsForStoppedManual(stopped: StoppedRunInfo): Action[] {
   const runId = stopped.runId;
@@ -385,19 +504,29 @@ function actionsForClean(state: RepoState): Action[] {
 
 /**
  * Generate headline for display.
+ * Uses analysis to provide accurate messaging about what's possible.
  */
 function generateHeadline(
   status: DisplayStatus,
   state: RepoState,
-  strategy: ContinueStrategy
+  strategy: ContinueStrategy,
+  analysis?: StoppedAnalysis
 ): string {
   switch (status) {
     case 'running':
       return `RUNNING: ${state.activeRun!.runId}`;
     case 'stopped_auto':
       return `STOPPED (${state.latestStopped!.stopReason}) - auto-${strategy.type === 'auto_fix' ? 'fix' : 'resume'} available`;
-    case 'stopped_manual':
+    case 'stopped_manual': {
+      // Differentiate between "blocked but could auto-fix" and "truly manual"
+      if (analysis?.autoFixAvailable && !analysis.autoFixPermitted) {
+        const blockMsg = analysis.blockReason === 'dirty_tree_ledger'
+          ? 'auto-fix blocked (ledger + dirty)'
+          : 'auto-fix blocked (ledger mode)';
+        return `STOPPED (${state.latestStopped!.stopReason}) - ${blockMsg}`;
+      }
       return `STOPPED (${state.latestStopped!.stopReason}) - manual intervention needed`;
+    }
     case 'orch_ready':
       return `Orchestration ready (${state.orchestration!.tracksComplete}/${state.orchestration!.tracksTotal} tracks complete)`;
     case 'clean':
@@ -475,26 +604,41 @@ export function computeBrain(input: BrainInput): BrainOutput {
 
   // Priority 2: Stopped run (takes priority over orchestration)
   if (state.latestStopped) {
-    const strategy = determineStoppedStrategy(
+    // Analyze the stopped run to get the two key booleans
+    const analysis = analyzeStoppedRun(
       state.latestStopped,
       stopDiagnosis,
       stopExplainer,
-      state.mode
+      state
     );
 
+    // Determine strategy based on analysis
+    const strategy = determineStoppedStrategy(state.latestStopped, analysis);
+
+    // Determine display status and actions
     const isAuto = strategy.type === 'auto_resume' || strategy.type === 'auto_fix';
+    const isBlocked = analysis.autoFixAvailable && !analysis.autoFixPermitted;
     const status: DisplayStatus = isAuto ? 'stopped_auto' : 'stopped_manual';
 
-    const actions = isAuto
-      ? actionsForStoppedAuto(state.latestStopped, strategy)
-      : actionsForStoppedManual(state.latestStopped);
+    // Select appropriate action generator
+    let actions: Action[];
+    if (isAuto) {
+      actions = actionsForStoppedAuto(state.latestStopped, strategy);
+    } else if (isBlocked) {
+      // Auto-fix available but blocked by ledger - show --force as primary
+      actions = actionsForStoppedBlocked(state.latestStopped, analysis);
+    } else {
+      // Truly manual - no auto-fix path available
+      actions = actionsForStoppedManual(state.latestStopped);
+    }
 
     return {
       status,
-      headline: generateHeadline(status, state, strategy),
+      headline: generateHeadline(status, state, strategy, analysis),
       summaryLines: generateSummaryLines(status, state, stopDiagnosis, stopExplainer),
       actions,
       continueStrategy: strategy,
+      stoppedAnalysis: analysis,
     };
   }
 

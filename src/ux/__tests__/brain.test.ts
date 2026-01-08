@@ -339,4 +339,135 @@ describe('brain', () => {
       expect(output.continueStrategy.type).toBe('nothing');
     });
   });
+
+  // ============================================================================
+  // New tests for autoFixAvailable/autoFixPermitted logic
+  // ============================================================================
+
+  describe('autoFix analysis', () => {
+    it('flow + clean + commands → auto_fix with correct headline', () => {
+      const output = computeBrain({
+        state: createState({
+          mode: 'flow',
+          treeStatus: 'clean',
+          latestStopped: createStopped('review_loop_detected'),
+        }),
+        stopDiagnosis: {
+          run_id: 'test-run-123',
+          outcome: 'stopped',
+          stop_reason: 'review_loop_detected',
+          stop_reason_family: 'review',
+          primary_diagnosis: 'review_loop_detected',
+          confidence: 1,
+          signals: [],
+          next_actions: [
+            { title: 'Run tests', command: 'npm test', why: 'Run tests' },
+          ],
+          related_artifacts: {},
+          diagnosed_at: '2026-01-01T00:00:00Z',
+        },
+        stopExplainer: null,
+      });
+
+      expect(output.continueStrategy.type).toBe('auto_fix');
+      expect(output.status).toBe('stopped_auto');
+      expect(output.headline).toContain('auto-fix available');
+      expect(output.stoppedAnalysis?.autoFixAvailable).toBe(true);
+      expect(output.stoppedAnalysis?.autoFixPermitted).toBe(true);
+    });
+
+    it('ledger + clean + commands → manual with blocked headline and --force action', () => {
+      const output = computeBrain({
+        state: createState({
+          mode: 'ledger',
+          treeStatus: 'clean',
+          latestStopped: createStopped('review_loop_detected'),
+        }),
+        stopDiagnosis: {
+          run_id: 'test-run-123',
+          outcome: 'stopped',
+          stop_reason: 'review_loop_detected',
+          stop_reason_family: 'review',
+          primary_diagnosis: 'review_loop_detected',
+          confidence: 1,
+          signals: [],
+          next_actions: [
+            { title: 'Run tests', command: 'npm test', why: 'Run tests' },
+          ],
+          related_artifacts: {},
+          diagnosed_at: '2026-01-01T00:00:00Z',
+        },
+        stopExplainer: null,
+      });
+
+      expect(output.continueStrategy.type).toBe('manual');
+      expect(output.status).toBe('stopped_manual');
+      expect(output.headline).toContain('blocked');
+      expect(output.headline).toContain('ledger');
+      // Primary action should be runr continue --force
+      expect(output.actions[0].command).toBe('runr continue --force');
+      expect(output.actions[0].primary).toBe(true);
+      // Analysis should show available but not permitted
+      expect(output.stoppedAnalysis?.autoFixAvailable).toBe(true);
+      expect(output.stoppedAnalysis?.autoFixPermitted).toBe(false);
+      expect(output.stoppedAnalysis?.blockReason).toBe('ledger_mode');
+    });
+
+    it('ledger + dirty + commands → manual with dirty+ledger in headline', () => {
+      const output = computeBrain({
+        state: createState({
+          mode: 'ledger',
+          treeStatus: 'dirty',
+          latestStopped: createStopped('review_loop_detected'),
+        }),
+        stopDiagnosis: {
+          run_id: 'test-run-123',
+          outcome: 'stopped',
+          stop_reason: 'review_loop_detected',
+          stop_reason_family: 'review',
+          primary_diagnosis: 'review_loop_detected',
+          confidence: 1,
+          signals: [],
+          next_actions: [
+            { title: 'Run tests', command: 'npm test', why: 'Run tests' },
+          ],
+          related_artifacts: {},
+          diagnosed_at: '2026-01-01T00:00:00Z',
+        },
+        stopExplainer: null,
+      });
+
+      expect(output.continueStrategy.type).toBe('manual');
+      expect(output.status).toBe('stopped_manual');
+      expect(output.headline).toContain('blocked');
+      expect(output.headline).toContain('dirty');
+      // Analysis should show dirty tree block reason
+      expect(output.stoppedAnalysis?.autoFixAvailable).toBe(true);
+      expect(output.stoppedAnalysis?.autoFixPermitted).toBe(false);
+      expect(output.stoppedAnalysis?.blockReason).toBe('dirty_tree_ledger');
+      expect(output.stoppedAnalysis?.treeDirty).toBe(true);
+    });
+
+    it('manual reason + flow + dirty → still manual, dirty is informational', () => {
+      const output = computeBrain({
+        state: createState({
+          mode: 'flow',
+          treeStatus: 'dirty',
+          latestStopped: createStopped('guard_violation'),
+        }),
+        stopDiagnosis: null,
+        stopExplainer: null,
+      });
+
+      expect(output.continueStrategy.type).toBe('manual');
+      expect(output.status).toBe('stopped_manual');
+      // Headline should say manual intervention, not blocked
+      expect(output.headline).toContain('manual intervention needed');
+      expect(output.headline).not.toContain('blocked');
+      // Primary action should be view report (not --force)
+      expect(output.actions[0].command).toContain('runr report');
+      // Tree dirty doesn't change the bucket for manual reasons
+      expect(output.summaryLines.some(line => line.includes('dirty'))).toBe(true);
+    });
+  });
 });

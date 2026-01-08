@@ -9,7 +9,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { getRunsRoot } from '../store/runs-root.js';
-import type { ContinueStrategy } from './brain.js';
+import type { ContinueStrategy, StoppedAnalysis } from './brain.js';
 
 /**
  * UX event types for telemetry.
@@ -78,11 +78,13 @@ export function recordFrontDoor(repoPath: string, runId?: string): void {
 
 /**
  * Record continue command attempt.
+ * Includes analysis fields for debugging "why did continue not run?" scenarios.
  */
 export function recordContinueAttempt(
   repoPath: string,
   runId: string | undefined,
-  strategy: ContinueStrategy
+  strategy: ContinueStrategy,
+  analysis?: StoppedAnalysis
 ): void {
   writeBreadcrumb(repoPath, {
     type: 'continue_attempted',
@@ -92,6 +94,14 @@ export function recordContinueAttempt(
       ...(strategy.type === 'auto_fix' && { commandCount: strategy.commands.length }),
       ...(strategy.type === 'manual' && { blockedReason: strategy.blockedReason }),
       ...(strategy.type === 'continue_orch' && { orchestratorId: strategy.orchestratorId }),
+      // Include analysis fields for debugging
+      ...(analysis && {
+        autoFixAvailable: analysis.autoFixAvailable,
+        autoFixPermitted: analysis.autoFixPermitted,
+        treeDirty: analysis.treeDirty,
+        mode: analysis.mode,
+        blockReason: analysis.blockReason,
+      }),
     },
   });
 }

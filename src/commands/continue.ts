@@ -276,8 +276,8 @@ export async function continueCommand(options: ContinueOptions): Promise<void> {
         ? strategy.runId
         : undefined;
 
-  // Record continue attempt
-  recordContinueAttempt(repoPath, runIdForTelemetry, strategy);
+  // Record continue attempt with analysis for debugging
+  recordContinueAttempt(repoPath, runIdForTelemetry, strategy, brainOutput.stoppedAnalysis);
 
   // Route based on strategy
   switch (strategy.type) {
