@@ -518,11 +518,27 @@ function generateHeadline(
     case 'stopped_auto':
       return `STOPPED (${state.latestStopped!.stopReason}) - auto-${strategy.type === 'auto_fix' ? 'fix' : 'resume'} available`;
     case 'stopped_manual': {
-      // Differentiate between "blocked but could auto-fix" and "truly manual"
-      if (analysis?.autoFixAvailable && !analysis.autoFixPermitted) {
-        const blockMsg = analysis.blockReason === 'dirty_tree_ledger'
-          ? 'auto-fix blocked (ledger + dirty)'
-          : 'auto-fix blocked (ledger mode)';
+      // Map blockReason to user-facing message
+      // "blocked" implies there IS a safe fix but policy won't allow it
+      // "unavailable" implies there's no safe fix to run
+      if (analysis?.blockReason) {
+        let blockMsg: string;
+        switch (analysis.blockReason) {
+          case 'ledger_mode':
+            blockMsg = 'auto-fix blocked (ledger mode)';
+            break;
+          case 'dirty_tree_ledger':
+            blockMsg = 'auto-fix blocked (ledger + dirty tree)';
+            break;
+          case 'unsafe_commands':
+            blockMsg = 'auto-fix blocked (unsafe commands)';
+            break;
+          case 'no_commands':
+            blockMsg = 'auto-fix unavailable (no safe commands)';
+            break;
+          default:
+            blockMsg = 'manual intervention needed';
+        }
         return `STOPPED (${state.latestStopped!.stopReason}) - ${blockMsg}`;
       }
       return `STOPPED (${state.latestStopped!.stopReason}) - manual intervention needed`;
@@ -541,7 +557,8 @@ function generateSummaryLines(
   status: DisplayStatus,
   state: RepoState,
   stopDiagnosis: StopDiagnosisJson | null,
-  stopExplainer: StopDiagnostics | null
+  stopExplainer: StopDiagnostics | null,
+  analysis?: StoppedAnalysis
 ): string[] {
   const lines: string[] = [];
 
@@ -565,6 +582,13 @@ function generateSummaryLines(
     // Add diagnosis category if available
     if (stopDiagnosis?.primary_diagnosis) {
       lines.push(`Diagnosis: ${stopDiagnosis.primary_diagnosis}`);
+    }
+
+    // Add hint for ledger-blocked cases
+    if (analysis?.autoFixAvailable && !analysis.autoFixPermitted) {
+      if (analysis.blockReason === 'ledger_mode' || analysis.blockReason === 'dirty_tree_ledger') {
+        lines.push('Use `runr continue --force` to run safe verification commands.');
+      }
     }
   }
 
@@ -635,7 +659,7 @@ export function computeBrain(input: BrainInput): BrainOutput {
     return {
       status,
       headline: generateHeadline(status, state, strategy, analysis),
-      summaryLines: generateSummaryLines(status, state, stopDiagnosis, stopExplainer),
+      summaryLines: generateSummaryLines(status, state, stopDiagnosis, stopExplainer, analysis),
       actions,
       continueStrategy: strategy,
       stoppedAnalysis: analysis,

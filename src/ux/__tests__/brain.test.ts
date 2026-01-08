@@ -411,6 +411,8 @@ describe('brain', () => {
       expect(output.stoppedAnalysis?.autoFixAvailable).toBe(true);
       expect(output.stoppedAnalysis?.autoFixPermitted).toBe(false);
       expect(output.stoppedAnalysis?.blockReason).toBe('ledger_mode');
+      // Summary should include hint about --force
+      expect(output.summaryLines.some(line => line.includes('--force'))).toBe(true);
     });
 
     it('ledger + dirty + commands → manual with dirty+ledger in headline', () => {
@@ -468,6 +470,115 @@ describe('brain', () => {
       expect(output.actions[0].command).toContain('runr report');
       // Tree dirty doesn't change the bucket for manual reasons
       expect(output.summaryLines.some(line => line.includes('dirty'))).toBe(true);
+    });
+
+    it('unsafe_commands → headline shows blocked, primary is report (not --force)', () => {
+      const output = computeBrain({
+        state: createState({
+          mode: 'flow',
+          treeStatus: 'clean',
+          latestStopped: createStopped('review_loop_detected'),
+        }),
+        stopDiagnosis: {
+          run_id: 'test-run-123',
+          outcome: 'stopped',
+          stop_reason: 'review_loop_detected',
+          stop_reason_family: 'review',
+          primary_diagnosis: 'review_loop_detected',
+          confidence: 1,
+          signals: [],
+          next_actions: [
+            // Unsafe command (has pipe)
+            { title: 'Dangerous', command: 'npm test | tee log', why: 'Has pipe' },
+          ],
+          related_artifacts: {},
+          diagnosed_at: '2026-01-01T00:00:00Z',
+        },
+        stopExplainer: null,
+      });
+
+      expect(output.continueStrategy.type).toBe('manual');
+      expect(output.status).toBe('stopped_manual');
+      expect(output.headline).toContain('unsafe commands');
+      // Primary action should be report, not --force (force doesn't help here)
+      expect(output.actions[0].command).toContain('runr report');
+      expect(output.actions[0].command).not.toContain('--force');
+      // Analysis should show blockReason
+      expect(output.stoppedAnalysis?.blockReason).toBe('unsafe_commands');
+      expect(output.stoppedAnalysis?.autoFixAvailable).toBe(false);
+    });
+
+    it('no_commands → headline shows unavailable, primary is report', () => {
+      const output = computeBrain({
+        state: createState({
+          mode: 'flow',
+          treeStatus: 'clean',
+          latestStopped: createStopped('review_loop_detected'),
+        }),
+        // No commands at all
+        stopDiagnosis: null,
+        stopExplainer: null,
+      });
+
+      expect(output.continueStrategy.type).toBe('manual');
+      expect(output.status).toBe('stopped_manual');
+      expect(output.headline).toContain('unavailable');
+      expect(output.headline).toContain('no safe commands');
+      // Primary action should be report
+      expect(output.actions[0].command).toContain('runr report');
+      // Analysis should show blockReason
+      expect(output.stoppedAnalysis?.blockReason).toBe('no_commands');
+      expect(output.stoppedAnalysis?.autoFixAvailable).toBe(false);
+    });
+  });
+
+  describe('invariants', () => {
+    it('safeCommands.length > 0 iff autoFixAvailable', () => {
+      // Test case 1: Has safe commands → autoFixAvailable = true
+      const output1 = computeBrain({
+        state: createState({
+          mode: 'flow',
+          latestStopped: createStopped('review_loop_detected'),
+        }),
+        stopDiagnosis: {
+          run_id: 'test-run-123',
+          outcome: 'stopped',
+          stop_reason: 'review_loop_detected',
+          stop_reason_family: 'review',
+          primary_diagnosis: 'review_loop_detected',
+          confidence: 1,
+          signals: [],
+          next_actions: [
+            { title: 'Run tests', command: 'npm test', why: 'Run tests' },
+          ],
+          related_artifacts: {},
+          diagnosed_at: '2026-01-01T00:00:00Z',
+        },
+        stopExplainer: null,
+      });
+
+      if (output1.stoppedAnalysis?.autoFixAvailable) {
+        expect(output1.stoppedAnalysis.safeCommands.length).toBeGreaterThan(0);
+      }
+
+      // Test case 2: No safe commands → autoFixAvailable = false
+      const output2 = computeBrain({
+        state: createState({
+          mode: 'flow',
+          latestStopped: createStopped('review_loop_detected'),
+        }),
+        stopDiagnosis: null,
+        stopExplainer: null,
+      });
+
+      if (output2.stoppedAnalysis?.safeCommands.length === 0) {
+        expect(output2.stoppedAnalysis.autoFixAvailable).toBe(false);
+      }
+
+      // Verify the inverse: if autoFixAvailable is false, safeCommands should be empty
+      // (for potentially fixable reasons)
+      expect(output2.stoppedAnalysis?.autoFixAvailable).toBe(false);
+      expect(output2.stoppedAnalysis?.safeCommands).toHaveLength(0);
     });
   });
 });
