@@ -6,15 +6,54 @@
 
 ---
 
+## ✅ RESOLUTION STATUS: COMPLETE
+
+**Completed:** 2026-01-08
+
+All P0, P1, and most P2 issues have been resolved. The following fixes were applied:
+
+### Files Updated:
+- `DOGFOODING.md` - Complete rebrand from agent → runr
+- `docs/RUNBOOK.md` - All commands and paths updated
+- `docs/architecture.md` - All paths updated
+- `docs/glossary.md` - All paths and commands updated
+- `docs/troubleshooting.md` - All paths updated
+- `docs/overview.md` - Rebranded to Runr
+- `docs/how-it-works.md` - Rebranded and paths updated
+- `docs/PILOT_PROGRAM.md` - Full rebrand
+- `docs/worktrees.md` - Paths and env var updated
+- `docs/cli.md` - Added missing commands (--demo, continue, meta, watch)
+- `docs/positioning-whitepaper.md` - Paths updated
+- `docs/positioning.md` - Paths updated
+- `docs/bug-reporting.md` - Paths updated
+- `docs/run-store.md` - Paths updated
+- `docs/deckbuilder-fixture.md` - Commands updated
+- `docs/internal-dev-process.md` - Commands updated
+- `docs/internal/microcourses-retrospective.md` - Commands updated
+- `docs/workers.md` - Config file name updated
+- `docs/verification.md` - Config file name updated
+- `docs/framework-comparison.md` - Config example updated
+- `docs/tutorial.md` - All commands and paths updated
+- `MIGRATION.md` - Added v0.7.x section
+
+### Remaining Notes:
+- `docs/deckbuilder-fixture.md` references `apps/deckbuilder/agent.config.json` - This is **intentional** as the actual file still has that name
+- `docs/internal/ROADMAP-STABILITY.md` references old paths in historical context - left as-is for archival accuracy
+- `docs/configuration.md` and `docs/quickstart.md` mention legacy paths are supported - this is **intentional** for migration guidance
+
+---
+
+## Original Audit (for reference)
+
 ## Executive Summary
 
 The documentation has evolved through multiple iterations but contains significant inconsistencies from the `agent` → `runr` rebrand and version progression. Many docs still reference old paths, commands, and version numbers. The core workflow docs (workflow-guide, hybrid-workflow, packs) are well-maintained, but peripheral docs need updates.
 
-**Priority Breakdown:**
-- **P0 (Critical):** 8 issues - Wrong commands/paths that will confuse users
-- **P1 (High):** 12 issues - Outdated info, naming inconsistencies
-- **P2 (Medium):** 9 issues - Missing docs, style improvements
-- **P3 (Low):** 6 issues - Minor polish
+**Priority Breakdown (RESOLVED):**
+- **P0 (Critical):** 8 issues - ✅ Fixed
+- **P1 (High):** 12 issues - ✅ Fixed
+- **P2 (Medium):** 9 issues - ✅ Mostly fixed
+- **P3 (Low):** 6 issues - Deferred (minor polish)
 
 ---
 
