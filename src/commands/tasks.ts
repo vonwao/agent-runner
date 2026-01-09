@@ -167,6 +167,56 @@ function formatType(type: TaskType): string {
 }
 
 /**
+ * Get sort priority for task status (lower = first).
+ * Order: stopped, in_progress, failed, pending (automated), pending (manual), completed
+ */
+function getStatusPriority(task: TaskInfo): number {
+  switch (task.status) {
+    case 'stopped': return 0;
+    case 'in_progress': return 1;
+    case 'failed': return 2;
+    case 'pending':
+      // Automated/hybrid ready (deps met) before blocked/manual
+      if (task.type !== 'manual' && task.depsComplete) return 3;
+      if (task.type !== 'manual') return 4;  // deps unmet
+      if (task.depsComplete) return 5;  // manual ready
+      return 6;  // manual deps unmet
+    case 'completed': return 7;
+    default: return 8;
+  }
+}
+
+/**
+ * Format next command hint for a task.
+ */
+function formatNextHint(task: TaskInfo): string {
+  switch (task.status) {
+    case 'stopped':
+      if (task.statusEntry?.last_run_id) {
+        return `\x1b[90m→ runr continue\x1b[0m`;
+      }
+      return '';
+    case 'in_progress':
+      return `\x1b[90m→ runr report ${task.statusEntry?.last_run_id || 'latest'}\x1b[0m`;
+    case 'failed':
+      return `\x1b[90m→ runr report ${task.statusEntry?.last_run_id || 'latest'}\x1b[0m`;
+    case 'pending':
+      if (!task.depsComplete) {
+        const firstUnmet = path.basename(task.unmetDeps[0] || '');
+        return `\x1b[90m→ complete ${firstUnmet} first\x1b[0m`;
+      }
+      if (task.type === 'manual') {
+        return `\x1b[90m→ runr run --task ... then mark-complete\x1b[0m`;
+      }
+      return `\x1b[90m→ runr run --task ${task.path}\x1b[0m`;
+    case 'completed':
+      return '';
+    default:
+      return '';
+  }
+}
+
+/**
  * Main tasks list command.
  */
 export async function tasksCommand(options: TasksOptions): Promise<void> {
@@ -198,8 +248,11 @@ export async function tasksCommand(options: TasksOptions): Promise<void> {
     return;
   }
 
+  // Sort by priority: stopped, in_progress, failed, pending (ready), pending (blocked/manual), completed
+  tasks.sort((a, b) => getStatusPriority(a) - getStatusPriority(b));
+
   // Print header
-  console.log(`\n\x1b[1mTasks in .runr/tasks/\x1b[0m\n`);
+  console.log(`\n\x1b[1mTasks\x1b[0m\n`);
 
   // Count by status
   const counts = {
@@ -217,36 +270,43 @@ export async function tasksCommand(options: TasksOptions): Promise<void> {
     const typeLabel = formatType(task.type);
     const filename = path.basename(task.path);
 
-    // Build status suffix
-    let suffix = '';
-    if (task.statusEntry?.last_run_id) {
-      suffix = `\x1b[90m  run:${task.statusEntry.last_run_id}\x1b[0m`;
-    }
-
-    // Deps indicator
+    // Deps indicator - more informative
     let depsIndicator = '';
     if (task.depends_on.length > 0) {
+      const metCount = task.depends_on.length - task.unmetDeps.length;
       if (task.depsComplete) {
-        depsIndicator = `\x1b[90m (deps: ✓)\x1b[0m`;
+        depsIndicator = `\x1b[90m deps:${metCount}/${task.depends_on.length}\x1b[0m`;
       } else {
-        depsIndicator = `\x1b[33m (deps: ${task.unmetDeps.length} unmet)\x1b[0m`;
+        const firstUnmet = path.basename(task.unmetDeps[0] || '');
+        depsIndicator = `\x1b[33m deps:${metCount}/${task.depends_on.length} (${firstUnmet})\x1b[0m`;
       }
     }
 
-    console.log(`  ${symbol} ${typeLabel}${filename}${depsIndicator}${suffix}`);
-    console.log(`    \x1b[90m${task.title}\x1b[0m`);
+    // Format line
+    const parts = [symbol, typeLabel + filename];
+    if (depsIndicator) parts.push(depsIndicator);
+
+    console.log(`  ${parts.join(' ')}`);
+
+    // Title + next hint on same line
+    const hint = formatNextHint(task);
+    if (hint) {
+      console.log(`    \x1b[90m${task.title}\x1b[0m  ${hint}`);
+    } else {
+      console.log(`    \x1b[90m${task.title}\x1b[0m`);
+    }
   }
 
   // Summary
   console.log('');
   const parts: string[] = [];
-  if (counts.completed > 0) parts.push(`\x1b[32m${counts.completed} completed\x1b[0m`);
-  if (counts.in_progress > 0) parts.push(`\x1b[33m${counts.in_progress} in progress\x1b[0m`);
   if (counts.stopped > 0) parts.push(`\x1b[31m${counts.stopped} stopped\x1b[0m`);
+  if (counts.in_progress > 0) parts.push(`\x1b[33m${counts.in_progress} in progress\x1b[0m`);
   if (counts.failed > 0) parts.push(`\x1b[31m${counts.failed} failed\x1b[0m`);
   if (counts.pending > 0) parts.push(`\x1b[90m${counts.pending} pending\x1b[0m`);
+  if (counts.completed > 0) parts.push(`\x1b[32m${counts.completed} completed\x1b[0m`);
 
-  console.log(`Total: ${tasks.length} tasks (${parts.join(', ')})`);
+  console.log(`${tasks.length} tasks: ${parts.join(', ')}`);
   console.log('');
 }
 

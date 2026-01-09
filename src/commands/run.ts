@@ -274,10 +274,65 @@ async function freshenTargetRoot(repoPath: string, allowlist: string[]): Promise
 export async function runCommand(options: RunOptions): Promise<void> {
   const repoPath = path.resolve(options.repo);
   const taskPath = path.resolve(options.task);
-  const configPath = resolveConfigPath(repoPath, options.config);
-  const config = loadConfig(configPath);
+
+  // Load task metadata FIRST - needed to check if manual task
   const taskMetadata = loadTaskMetadata(taskPath);
   const taskText = taskMetadata.body;
+
+  // Handle manual tasks EARLY: print recipe and exit without loading full config
+  // Manual tasks don't need worker config, verification settings, etc.
+  if (taskMetadata.type === 'manual') {
+    // Check dependencies even for manual tasks
+    if (taskMetadata.depends_on.length > 0 && !options.json) {
+      const allStatuses = getAllTaskStatuses(repoPath);
+      const unmetDeps: string[] = [];
+      for (const dep of taskMetadata.depends_on) {
+        const depStatus = allStatuses[dep];
+        if (!depStatus || depStatus.status !== 'completed') {
+          unmetDeps.push(dep);
+        }
+      }
+      if (unmetDeps.length > 0) {
+        console.log('');
+        console.log('\x1b[33m⚠ Warning: Unmet dependencies:\x1b[0m');
+        for (const dep of unmetDeps) {
+          console.log(`  - ${dep}`);
+        }
+        console.log('');
+      }
+    }
+
+    if (options.json) {
+      const jsonOutput = {
+        run_id: null,
+        run_dir: null,
+        repo_root: repoPath,
+        status: 'manual_task',
+        task_type: 'manual',
+        task_path: taskPath
+      };
+      console.log(JSON.stringify(jsonOutput));
+    } else {
+      console.log('');
+      console.log('\x1b[36m═══════════════════════════════════════════════════════════════\x1b[0m');
+      console.log('\x1b[1mManual Task Recipe\x1b[0m');
+      console.log('\x1b[36m═══════════════════════════════════════════════════════════════\x1b[0m');
+      console.log('');
+      console.log(taskText);
+      console.log('');
+      console.log('\x1b[36m═══════════════════════════════════════════════════════════════\x1b[0m');
+      console.log('');
+      console.log('This is a \x1b[33mmanual task\x1b[0m. Complete the steps above, then mark complete:');
+      console.log('');
+      console.log(`  \x1b[32mrunr tasks mark-complete ${options.task}\x1b[0m`);
+      console.log('');
+    }
+    return;
+  }
+
+  // Load full config only for automated/hybrid tasks
+  const configPath = resolveConfigPath(repoPath, options.config);
+  const config = loadConfig(configPath);
   const ownsRaw = taskMetadata.owns_raw;
   const ownsNormalized = taskMetadata.owns_normalized;
 
@@ -313,36 +368,6 @@ export async function runCommand(options: RunOptions): Promise<void> {
       console.log('Proceeding anyway...');
       console.log('');
     }
-  }
-
-  // Handle manual tasks: print recipe and exit without running worker
-  if (taskMetadata.type === 'manual') {
-    if (options.json) {
-      const jsonOutput = {
-        run_id: null,
-        run_dir: null,
-        repo_root: repoPath,
-        status: 'manual_task',
-        task_type: 'manual',
-        task_path: taskPath
-      };
-      console.log(JSON.stringify(jsonOutput));
-    } else {
-      console.log('');
-      console.log('\x1b[36m═══════════════════════════════════════════════════════════════\x1b[0m');
-      console.log('\x1b[1mManual Task Recipe\x1b[0m');
-      console.log('\x1b[36m═══════════════════════════════════════════════════════════════\x1b[0m');
-      console.log('');
-      console.log(taskText);
-      console.log('');
-      console.log('\x1b[36m═══════════════════════════════════════════════════════════════\x1b[0m');
-      console.log('');
-      console.log('This is a \x1b[33mmanual task\x1b[0m. Complete the steps above, then mark complete:');
-      console.log('');
-      console.log(`  \x1b[32mrunr tasks mark-complete ${options.task}\x1b[0m`);
-      console.log('');
-    }
-    return;
   }
 
   // Auto-inject git excludes for agent artifacts BEFORE any git status checks.

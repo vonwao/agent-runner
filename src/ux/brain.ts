@@ -10,7 +10,7 @@
  * - stop footer generation
  */
 
-import type { RepoState, StoppedRunInfo, OrchCursor } from './state.js';
+import type { RepoState, StoppedRunInfo, OrchCursor, TaskSummary } from './state.js';
 import type { StopDiagnosisJson, NextAction } from '../diagnosis/types.js';
 import type { StopDiagnostics, SuggestedAction } from '../diagnosis/stop-explainer.js';
 import { filterSafeCommands, type CanonicalCommand } from './safe-commands.js';
@@ -465,10 +465,91 @@ function actionsForOrchReady(orch: OrchCursor, state: RepoState): Action[] {
 
 /**
  * Generate actions for clean state (nothing happening).
+ * Task-aware: if tasks exist, surface them as primary actions.
  */
 function actionsForClean(state: RepoState): Action[] {
+  const tasks = state.taskSummary;
   const hasLatestRun = state.latestRun !== null;
 
+  // If we have tasks, prioritize task-based actions
+  if (tasks && tasks.total > 0) {
+    const actions: Action[] = [];
+
+    // Priority 1: Stopped task needs attention
+    if (tasks.stoppedTask) {
+      actions.push({
+        label: 'View stopped task',
+        command: 'runr tasks',
+        rationale: `${tasks.stopped} stopped task(s) need attention`,
+        primary: true,
+      });
+    }
+    // Priority 2: Next automated/hybrid task ready
+    else if (tasks.nextTask && tasks.nextTask.type !== 'manual') {
+      actions.push({
+        label: 'Start next task',
+        command: `runr run --task ${tasks.nextTask.path}`,
+        rationale: tasks.nextTask.title,
+        primary: true,
+      });
+    }
+    // Priority 3: Manual task pending
+    else if (tasks.pendingManualTask) {
+      actions.push({
+        label: 'View manual task',
+        command: `runr run --task ${tasks.pendingManualTask.path}`,
+        rationale: `Manual: ${tasks.pendingManualTask.title}`,
+        primary: true,
+      });
+    }
+    // Priority 4: All done or blocked
+    else {
+      actions.push({
+        label: 'View tasks',
+        command: 'runr tasks',
+        rationale: `${tasks.completed}/${tasks.total} completed`,
+        primary: true,
+      });
+    }
+
+    // Secondary: always show tasks list
+    if (actions[0]?.command !== 'runr tasks') {
+      actions.push({
+        label: 'View all tasks',
+        command: 'runr tasks',
+        rationale: `${tasks.completed}/${tasks.total} completed`,
+        primary: false,
+      });
+    } else {
+      actions.push(
+        hasLatestRun
+          ? {
+              label: 'View last run',
+              command: 'runr report latest',
+              rationale: 'See what happened last time',
+              primary: false,
+            }
+          : {
+              label: 'Help',
+              command: 'runr help',
+              rationale: 'See all available commands',
+              primary: false,
+            }
+      );
+    }
+
+    // Tertiary: help
+    actions.push({
+      label: 'Help',
+      command: 'runr help',
+      rationale: 'See all available commands',
+      primary: false,
+    });
+
+    return actions.slice(0, 3);
+  }
+
+  // No tasks - default behavior
   return [
     {
       label: 'Run a task',
@@ -545,8 +626,22 @@ function generateHeadline(
     }
     case 'orch_ready':
       return `Orchestration ready (${state.orchestration!.tracksComplete}/${state.orchestration!.tracksTotal} tracks complete)`;
-    case 'clean':
+    case 'clean': {
+      const tasks = state.taskSummary;
+      if (tasks && tasks.total > 0) {
+        if (tasks.stopped > 0) {
+          return `${tasks.stopped} task(s) stopped - needs attention`;
+        }
+        if (tasks.nextTask) {
+          return `Ready - next: ${tasks.nextTask.title}`;
+        }
+        if (tasks.completed === tasks.total) {
+          return `All ${tasks.total} tasks completed`;
+        }
+        return `Tasks: ${tasks.completed}/${tasks.total} completed`;
+      }
       return 'Ready';
+    }
   }
 }
 
@@ -597,6 +692,20 @@ function generateSummaryLines(
     const orch = state.orchestration;
     if (orch.tracksStopped > 0) {
       lines.push(`Stopped tracks: ${orch.tracksStopped}`);
+    }
+  }
+
+  // Add task info for clean state
+  if (status === 'clean' && state.taskSummary) {
+    const tasks = state.taskSummary;
+    const parts: string[] = [];
+    if (tasks.completed > 0) parts.push(`${tasks.completed} done`);
+    if (tasks.stopped > 0) parts.push(`${tasks.stopped} stopped`);
+    if (tasks.inProgress > 0) parts.push(`${tasks.inProgress} in progress`);
+    if (tasks.pendingAutomated > 0) parts.push(`${tasks.pendingAutomated} pending`);
+    if (tasks.pendingManual > 0) parts.push(`${tasks.pendingManual} manual`);
+    if (parts.length > 0) {
+      lines.push(`Tasks: ${parts.join(', ')}`);
     }
   }
 

@@ -13,6 +13,7 @@ function createState(overrides: Partial<RepoState> = {}): RepoState {
     latestRun: null,
     latestStopped: null,
     orchestration: null,
+    taskSummary: null,
     treeStatus: 'clean',
     mode: 'flow',
     repoPath: '/test/repo',

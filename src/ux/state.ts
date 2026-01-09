@@ -10,11 +10,13 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
-import { getRunsRoot } from '../store/runs-root.js';
+import { getRunsRoot, getRunrPaths } from '../store/runs-root.js';
 import { findLatestRunId, listRecentRunIds } from '../store/run-utils.js';
 import { getCurrentMode, WorkflowMode } from '../commands/mode.js';
 import { findLatestOrchestrationId, loadOrchestratorState } from '../orchestrator/state-machine.js';
 import { git } from '../repo/git.js';
+import { getAllTaskStatuses, type TaskStatusEntry } from '../store/task-status.js';
+import { loadTaskMetadata } from '../tasks/task-metadata.js';
 
 /**
  * Minimal info about a run (for display).
@@ -52,6 +54,38 @@ export interface OrchCursor {
 }
 
 /**
+ * Summary of task status for the UX layer.
+ */
+export interface TaskSummary {
+  /** Total task count */
+  total: number;
+  /** Count by status */
+  completed: number;
+  stopped: number;
+  inProgress: number;
+  failed: number;
+  pendingAutomated: number;
+  pendingManual: number;
+  /** Next suggested task (first pending with deps met, automated preferred) */
+  nextTask: {
+    path: string;
+    type: 'automated' | 'manual' | 'hybrid';
+    title: string;
+  } | null;
+  /** First stopped task (for action suggestion) */
+  stoppedTask: {
+    path: string;
+    title: string;
+    lastRunId: string | null;
+  } | null;
+  /** First pending manual task */
+  pendingManualTask: {
+    path: string;
+    title: string;
+  } | null;
+}
+
+/**
  * Complete repo state for the UX layer.
  */
 export interface RepoState {
@@ -63,6 +97,8 @@ export interface RepoState {
   latestStopped: StoppedRunInfo | null;
   /** Orchestration in progress, if any */
   orchestration: OrchCursor | null;
+  /** Task summary (if .runr/tasks/ exists) */
+  taskSummary: TaskSummary | null;
   /** Working tree status */
   treeStatus: 'clean' | 'dirty';
   /** Current workflow mode */
@@ -206,6 +242,153 @@ export function getOrchestrationCursor(repoPath: string): OrchCursor | null {
 }
 
 /**
+ * Extract title from task markdown body.
+ */
+function extractTitle(body: string): string {
+  const match = body.match(/^#\s+(.+)$/m);
+  return match ? match[1].trim() : 'Untitled';
+}
+
+/**
+ * Get task summary for the UX layer.
+ * Returns null if no .runr/tasks/ directory exists.
+ */
+export function getTaskSummary(repoPath: string): TaskSummary | null {
+  const paths = getRunrPaths(repoPath);
+  const tasksDir = path.join(paths.runr_root, 'tasks');
+
+  if (!fs.existsSync(tasksDir)) {
+    return null;
+  }
+
+  // Scan task files
+  const taskFiles: string[] = [];
+  function scan(dir: string, prefix: string = ''): void {
+    if (!fs.existsSync(dir)) return;
+    const entries = fs.readdirSync(dir, { withFileTypes: true });
+    for (const entry of entries) {
+      const relPath = prefix ? `${prefix}/${entry.name}` : entry.name;
+      if (entry.isDirectory()) {
+        scan(path.join(dir, entry.name), relPath);
+      } else if (entry.name.endsWith('.md')) {
+        taskFiles.push(relPath);
+      }
+    }
+  }
+  scan(tasksDir);
+
+  if (taskFiles.length === 0) {
+    return null;
+  }
+
+  // Get all statuses
+  const allStatuses = getAllTaskStatuses(repoPath);
+
+  // Build summary
+  const summary: TaskSummary = {
+    total: taskFiles.length,
+    completed: 0,
+    stopped: 0,
+    inProgress: 0,
+    failed: 0,
+    pendingAutomated: 0,
+    pendingManual: 0,
+    nextTask: null,
+    stoppedTask: null,
+    pendingManualTask: null,
+  };
+
+  // First pass: count and find candidates
+  const candidates: Array<{
+    path: string;
+    type: 'automated' | 'manual' | 'hybrid';
+    title: string;
+    depsComplete: boolean;
+  }> = [];
+
+  for (const taskFile of taskFiles.sort()) {
+    const taskPath = `.runr/tasks/${taskFile}`;
+    const absolutePath = path.join(tasksDir, taskFile);
+
+    // Load metadata
+    let metadata;
+    try {
+      metadata = loadTaskMetadata(absolutePath);
+    } catch {
+      continue;
+    }
+
+    const title = extractTitle(metadata.body);
+    const statusEntry = allStatuses[taskPath];
+    const status = statusEntry?.status ?? 'pending';
+
+    // Count by status
+    switch (status) {
+      case 'completed':
+        summary.completed++;
+        break;
+      case 'stopped':
+        summary.stopped++;
+        if (!summary.stoppedTask) {
+          summary.stoppedTask = {
+            path: taskPath,
+            title,
+            lastRunId: statusEntry?.last_run_id ?? null,
+          };
+        }
+        break;
+      case 'in_progress':
+        summary.inProgress++;
+        break;
+      case 'failed':
+        summary.failed++;
+        break;
+      case 'pending':
+        if (metadata.type === 'manual') {
+          summary.pendingManual++;
+          if (!summary.pendingManualTask) {
+            summary.pendingManualTask = { path: taskPath, title };
+          }
+        } else {
+          summary.pendingAutomated++;
+        }
+        // Check deps for next task candidate
+        let depsComplete = true;
+        for (const dep of metadata.depends_on) {
+          const depStatus = allStatuses[dep];
+          if (!depStatus || depStatus.status !== 'completed') {
+            depsComplete = false;
+            break;
+          }
+        }
+        candidates.push({
+          path: taskPath,
+          type: metadata.type,
+          title,
+          depsComplete,
+        });
+        break;
+    }
+  }
+
+  // Find next task: prefer automated with deps complete
+  const automatedReady = candidates.find(c => c.type === 'automated' && c.depsComplete);
+  const hybridReady = candidates.find(c => c.type === 'hybrid' && c.depsComplete);
+  const anyReady = candidates.find(c => c.depsComplete);
+
+  const next = automatedReady ?? hybridReady ?? anyReady;
+  if (next) {
+    summary.nextTask = {
+      path: next.path,
+      type: next.type,
+      title: next.title,
+    };
+  }
+
+  return summary;
+}
+
+/**
  * Check if working tree is clean.
  */
 export async function getTreeStatus(repoPath: string): Promise<'clean' | 'dirty'> {
@@ -244,6 +427,9 @@ export async function resolveRepoState(repoPath: string = process.cwd()): Promis
   // Get orchestration cursor
   const orchestration = getOrchestrationCursor(repoPath);
 
+  // Get task summary
+  const taskSummary = getTaskSummary(repoPath);
+
   // Get tree status
   const treeStatus = await getTreeStatus(repoPath);
 
@@ -255,6 +441,7 @@ export async function resolveRepoState(repoPath: string = process.cwd()): Promis
     latestRun,
     latestStopped,
     orchestration,
+    taskSummary,
     treeStatus,
     mode,
     repoPath,

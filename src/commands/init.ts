@@ -328,7 +328,14 @@ function createExampleTasks(runrDir: string): void {
   const tasksDir = path.join(runrDir, 'tasks');
   fs.mkdirSync(tasksDir, { recursive: true });
 
-  const exampleBugfix = `# Fix Bug: [Description]
+  // Automated task with owns declaration
+  const exampleBugfix = `---
+type: automated
+owns:
+  - src/[module]/**
+---
+
+# Fix Bug: [Description]
 
 ## Goal
 Fix [specific bug] in [component/module]
@@ -344,7 +351,17 @@ Fix [specific bug] in [component/module]
 - New test added covering the bug scenario
 `;
 
-  const exampleFeature = `# Add Feature: [Description]
+  // Automated task with dependency on bugfix
+  const exampleFeature = `---
+type: automated
+owns:
+  - src/[feature]/**
+  - tests/[feature]/**
+depends_on:
+  - .runr/tasks/example-bugfix.md
+---
+
+# Add Feature: [Description]
 
 ## Goal
 Implement [feature] that allows users to [action]
@@ -360,7 +377,17 @@ Implement [feature] that allows users to [action]
 - All verification checks pass (lint, typecheck, build, tests)
 `;
 
-  const exampleDocs = `# Update Documentation
+  // Task that depends on feature being complete
+  const exampleDocs = `---
+type: automated
+owns:
+  - docs/**
+  - README.md
+depends_on:
+  - .runr/tasks/example-feature.md
+---
+
+# Update Documentation
 
 ## Goal
 Update documentation for [topic/module]
@@ -376,9 +403,33 @@ Update documentation for [topic/module]
 - All verification checks pass
 `;
 
+  // Manual task example - for things that require human action
+  const exampleManual = `---
+type: manual
+---
+
+# Manual Setup: [Description]
+
+## Goal
+Complete these manual steps that cannot be automated.
+
+## Steps
+1. [ ] Step 1: [Description of manual action]
+2. [ ] Step 2: [Another manual action]
+3. [ ] Step 3: [Final verification]
+
+## When Complete
+After completing all steps above, mark this task as done:
+
+\`\`\`bash
+runr tasks mark-complete example-manual.md
+\`\`\`
+`;
+
   fs.writeFileSync(path.join(tasksDir, 'example-bugfix.md'), exampleBugfix);
   fs.writeFileSync(path.join(tasksDir, 'example-feature.md'), exampleFeature);
   fs.writeFileSync(path.join(tasksDir, 'example-docs.md'), exampleDocs);
+  fs.writeFileSync(path.join(tasksDir, 'example-manual.md'), exampleManual);
 }
 
 /**
@@ -473,7 +524,14 @@ describe('math', () => {
   };
   fs.writeFileSync(path.join(demoDir, '.runr', 'runr.config.json'), JSON.stringify(runrConfig, null, 2) + '\n');
 
-  fs.writeFileSync(path.join(demoDir, '.runr', 'tasks', '00-success.md'), `# Implement multiply function
+  fs.writeFileSync(path.join(demoDir, '.runr', 'tasks', '00-success.md'), `---
+type: automated
+owns:
+  - src/math.ts
+  - tests/math.test.ts
+---
+
+# Implement multiply function
 
 ## Goal
 Add a multiply function to src/math.ts and add a test for it.
@@ -487,7 +545,13 @@ Add a multiply function to src/math.ts and add a test for it.
 - npm test passes
 `);
 
-  fs.writeFileSync(path.join(demoDir, '.runr', 'tasks', '01-fix-failing-test.md'), `# Fix the failing divide test
+  fs.writeFileSync(path.join(demoDir, '.runr', 'tasks', '01-fix-failing-test.md'), `---
+type: automated
+owns:
+  - tests/math.test.ts
+---
+
+# Fix the failing divide test
 
 ## Goal
 The divide test is currently failing. Fix it.
@@ -508,7 +572,13 @@ This task demonstrates the autofix flow. When verification fails,
 run \`runr\` to see safe commands, then \`runr continue\` to auto-fix.
 `);
 
-  fs.writeFileSync(path.join(demoDir, '.runr', 'tasks', '02-scope-violation.md'), `# Update README (will be blocked)
+  fs.writeFileSync(path.join(demoDir, '.runr', 'tasks', '02-scope-violation.md'), `---
+type: automated
+owns:
+  - README.md
+---
+
+# Update README (will be blocked)
 
 ## Goal
 Update README.md to describe this math library.
@@ -526,6 +596,35 @@ README.md is in the denylist (see .runr/runr.config.json).
 
 This demonstrates Runr's safety guardrails working correctly.
 Run \`runr report latest\` to see the guard violation details.
+`);
+
+  // Add a manual task to the demo
+  fs.writeFileSync(path.join(demoDir, '.runr', 'tasks', '03-manual-review.md'), `---
+type: manual
+---
+
+# Manual Code Review
+
+## Goal
+Review the changes made by previous tasks before shipping.
+
+## Steps
+1. [ ] Run \`git log --oneline -5\` to see recent commits
+2. [ ] Run \`git diff main\` to review all changes
+3. [ ] Verify the code follows project conventions
+4. [ ] Check for any security concerns
+
+## When Complete
+After reviewing the changes:
+
+\`\`\`bash
+runr tasks mark-complete 03-manual-review.md
+\`\`\`
+
+## Note
+This is a **manual task**. Runr will show you these instructions
+and exit without spawning a worker. Manual tasks are for steps
+that require human judgment or action.
 `);
 
   fs.writeFileSync(path.join(demoDir, 'README.md'), `# Runr Demo
@@ -596,6 +695,34 @@ runr report latest   # See the guard violation details
 \`\`\`
 
 This is the safety layer working correctly. No \`--force\` can bypass scope.
+
+---
+
+## Task 4: Manual Task (human-in-the-loop)
+
+Some tasks require human judgment. Runr supports **manual tasks** that print instructions and exit cleanly.
+
+\`\`\`bash
+runr run --task .runr/tasks/03-manual-review.md
+\`\`\`
+
+**What happens:** Runr prints the task instructions and exits (no worker spawned).
+
+When you're done with manual steps:
+
+\`\`\`bash
+runr tasks mark-complete 03-manual-review.md
+\`\`\`
+
+---
+
+## Bonus: Task Dashboard
+
+See all tasks and their status:
+
+\`\`\`bash
+runr tasks
+\`\`\`
 
 ---
 
