@@ -19,6 +19,8 @@ export interface Step {
   owns_raw?: string[];
   /** Normalized ownership patterns used for reservation */
   owns_normalized?: string[];
+  /** Task dependencies (paths to tasks that must be completed first) */
+  depends_on?: string[];
   /** Run ID once launched */
   run_id?: string;
   /** Run directory once launched */
@@ -247,6 +249,7 @@ export const stepSchema = z.object({
   allowlist: z.array(z.string()).optional(),
   owns_raw: z.array(z.string()).optional(),
   owns_normalized: z.array(z.string()).optional(),
+  depends_on: z.array(z.string()).optional(),
   run_id: z.string().optional(),
   run_dir: z.string().optional(),
   result: stepResultSchema.optional()

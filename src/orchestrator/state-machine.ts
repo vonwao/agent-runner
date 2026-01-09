@@ -39,6 +39,7 @@ import {
   findOrchestrationDir,
   migrateOrchestrationIfNeeded
 } from './artifacts.js';
+import { isTaskCompleted, getAllTaskStatuses } from '../store/task-status.js';
 
 /**
  * Generate a unique orchestrator ID.
@@ -359,6 +360,35 @@ export function releaseOwnershipClaims(
 }
 
 /**
+ * Check if all dependencies for a step are satisfied.
+ * Returns list of unmet dependency paths.
+ */
+function checkDependencies(
+  step: Step,
+  repoPath: string
+): { satisfied: boolean; unmet: string[] } {
+  const deps = step.depends_on ?? [];
+  if (deps.length === 0) {
+    return { satisfied: true, unmet: [] };
+  }
+
+  const unmet: string[] = [];
+  const allStatuses = getAllTaskStatuses(repoPath);
+
+  for (const depPath of deps) {
+    const depStatus = allStatuses[depPath];
+    if (!depStatus || depStatus.status !== 'completed') {
+      unmet.push(depPath);
+    }
+  }
+
+  return {
+    satisfied: unmet.length === 0,
+    unmet
+  };
+}
+
+/**
  * Make a scheduling decision: what should the orchestrator do next?
  */
 export function makeScheduleDecision(
@@ -375,6 +405,9 @@ export function makeScheduleDecision(
     return { action: 'done' };
   }
 
+  // Track whether any track is waiting on dependencies
+  let waitingOnDeps = false;
+
   // Find tracks that can be launched
   for (const track of state.tracks) {
     // Skip tracks that are already running, complete, or failed
@@ -384,6 +417,14 @@ export function makeScheduleDecision(
 
     const step = getNextStep(track);
     if (!step) {
+      continue;
+    }
+
+    // Check task dependencies first
+    const depCheck = checkDependencies(step, state.repo_path);
+    if (!depCheck.satisfied) {
+      // Dependencies not met - skip this track (it will wait)
+      waitingOnDeps = true;
       continue;
     }
 
@@ -429,10 +470,17 @@ export function makeScheduleDecision(
 
   // No tracks ready to launch, but not all done - must be waiting
   const waitingTracks = state.tracks.filter((t) => t.status === 'waiting');
-  if (waitingTracks.length > 0) {
+  if (waitingTracks.length > 0 || waitingOnDeps) {
+    const reasons: string[] = [];
+    if (waitingTracks.length > 0) {
+      reasons.push(`collisions to clear: ${waitingTracks.map((t) => t.name).join(', ')}`);
+    }
+    if (waitingOnDeps) {
+      reasons.push('task dependencies to complete');
+    }
     return {
       action: 'wait',
-      reason: `Waiting for collisions to clear: ${waitingTracks.map((t) => t.name).join(', ')}`
+      reason: `Waiting for ${reasons.join(' and ')}`
     };
   }
 

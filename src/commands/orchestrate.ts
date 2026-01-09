@@ -90,7 +90,7 @@ function runAgentCommand(
   });
 }
 
-function applyTaskOwnershipMetadata(
+function applyTaskMetadata(
   state: OrchestratorState,
   repoPath: string
 ): { state: OrchestratorState; errors: string[] } {
@@ -98,7 +98,8 @@ function applyTaskOwnershipMetadata(
 
   const tracks = state.tracks.map((track) => {
     const steps = track.steps.map((step) => {
-      if (step.owns_normalized !== undefined && step.owns_raw !== undefined) {
+      // Skip if already loaded (for resume scenarios)
+      if (step.owns_normalized !== undefined && step.owns_raw !== undefined && step.depends_on !== undefined) {
         return step;
       }
 
@@ -108,7 +109,8 @@ function applyTaskOwnershipMetadata(
         return {
           ...step,
           owns_raw: metadata.owns_raw,
-          owns_normalized: metadata.owns_normalized
+          owns_normalized: metadata.owns_normalized,
+          depends_on: metadata.depends_on
         };
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
@@ -383,7 +385,7 @@ export async function orchestrateCommand(options: OrchestrateOptions): Promise<v
     return;
   }
 
-  const ownershipApplied = applyTaskOwnershipMetadata(state, repoPath);
+  const ownershipApplied = applyTaskMetadata(state, repoPath);
   if (ownershipApplied.errors.length > 0) {
     console.error('Failed to parse task ownership metadata:');
     for (const err of ownershipApplied.errors) {
@@ -666,7 +668,7 @@ export async function resumeOrchestrationCommand(options: OrchestrateResumeOptio
     }
   }
 
-  const ownershipApplied = applyTaskOwnershipMetadata(state, repoPath);
+  const ownershipApplied = applyTaskMetadata(state, repoPath);
   if (ownershipApplied.errors.length > 0) {
     console.error('Failed to parse task ownership metadata:');
     for (const err of ownershipApplied.errors) {

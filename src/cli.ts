@@ -44,6 +44,7 @@ import { auditCommand } from './commands/audit.js';
 import { modeCommand, type WorkflowMode } from './commands/mode.js';
 import { installCommand as hooksInstallCommand, uninstallCommand as hooksUninstallCommand, statusCommand as hooksStatusCommand, checkCommitCommand } from './commands/hooks.js';
 import { continueCommand } from './commands/continue.js';
+import { tasksCommand, taskShowCommand, taskMarkCompleteCommand } from './commands/tasks.js';
 import { CollisionPolicy } from './orchestrator/types.js';
 import { resolveRepoState } from './ux/state.js';
 import { computeBrain } from './ux/brain.js';
@@ -208,6 +209,47 @@ program
       dryRun: options.dryRun,
       demo: options.demo,
       demoDir: options.demoDir
+    });
+  });
+
+// Tasks command - list and inspect tasks
+const tasksCmd = program
+  .command('tasks')
+  .description('List tasks with status, dependencies, and type')
+  .option('--repo <path>', 'Target repo path', '.')
+  .option('--json', 'Output as JSON', false)
+  .action(async (options) => {
+    await tasksCommand({
+      repo: options.repo,
+      json: options.json
+    });
+  });
+
+tasksCmd
+  .command('show')
+  .description('Show detailed task info')
+  .argument('<task>', 'Task path or filename')
+  .option('--repo <path>', 'Target repo path', '.')
+  .option('--json', 'Output as JSON', false)
+  .action(async (task: string, options) => {
+    await taskShowCommand({
+      repo: options.repo,
+      task,
+      json: options.json
+    });
+  });
+
+tasksCmd
+  .command('mark-complete')
+  .description('Mark a manual task as completed')
+  .argument('<task>', 'Task path or filename')
+  .option('--repo <path>', 'Target repo path', '.')
+  .option('--json', 'Output as JSON', false)
+  .action(async (task: string, options) => {
+    await taskMarkCompleteCommand({
+      repo: options.repo,
+      task,
+      json: options.json
     });
   });
 

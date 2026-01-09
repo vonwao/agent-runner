@@ -34,6 +34,11 @@
       "line": ".runr/orchestrations/"
     },
     {
+      "type": "ensure_gitignore_entry",
+      "path": ".gitignore",
+      "line": ".runr/task-status.json"
+    },
+    {
       "type": "create_file_if_missing",
       "path": "AGENTS.md",
       "template": "AGENTS.md",

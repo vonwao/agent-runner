@@ -610,7 +610,7 @@ Runr stops with receipts and 3 actions you can trust:
 Every stop has a headline. Every headline maps to a fix.
 `);
 
-  fs.writeFileSync(path.join(demoDir, '.gitignore'), 'node_modules/\ndist/\n.runr/runs/\n');
+  fs.writeFileSync(path.join(demoDir, '.gitignore'), 'node_modules/\ndist/\n.runr/runs/\n.runr/task-status.json\n');
 }
 
 /**
@@ -800,13 +800,15 @@ export async function initCommand(options: InitOptions): Promise<void> {
       }
     }
   } else {
-    // Legacy path: ensure .runr/ is gitignored if no pack actions
+    // Legacy path: ensure .runr/ and task-status.json are gitignored if no pack actions
     const added = await ensureGitignoreEntry(repoPath, '.runr/');
     if (added) {
       console.log('✅ Added .runr/ to .gitignore');
     } else {
       console.log('✓ .runr/ already in .gitignore');
     }
+    // Also ensure task-status.json is gitignored
+    await ensureGitignoreEntry(repoPath, '.runr/task-status.json');
     console.log('');
     console.log('💡 Tip: runr init --pack solo --dry-run to preview workflow scaffolding');
     console.log('');

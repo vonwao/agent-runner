@@ -13,6 +13,14 @@ import { runDoctorChecks, WorkerCheck } from './doctor.js';
 import { captureFingerprint } from '../env/fingerprint.js';
 import { loadTaskMetadata } from '../tasks/task-metadata.js';
 import {
+  markTaskInProgress,
+  markTaskStopped,
+  markTaskCompleted,
+  markTaskFailed,
+  getAllTaskStatuses,
+  isTaskCompleted,
+} from '../store/task-status.js';
+import {
   getActiveRuns,
   checkAllowlistOverlaps,
   formatAllowlistWarning
@@ -284,6 +292,59 @@ export async function runCommand(options: RunOptions): Promise<void> {
     console.log(`Task-local scope additions: ${taskMetadata.allowlist_add.join(', ')}`);
   }
 
+  // Check and warn about unmet dependencies
+  if (taskMetadata.depends_on.length > 0 && !options.json) {
+    const allStatuses = getAllTaskStatuses(repoPath);
+    const unmetDeps: string[] = [];
+    for (const dep of taskMetadata.depends_on) {
+      const depStatus = allStatuses[dep];
+      if (!depStatus || depStatus.status !== 'completed') {
+        unmetDeps.push(dep);
+      }
+    }
+    if (unmetDeps.length > 0) {
+      console.log('');
+      console.log('\x1b[33m⚠ Warning: Unmet dependencies:\x1b[0m');
+      for (const dep of unmetDeps) {
+        console.log(`  - ${dep}`);
+      }
+      console.log('');
+      console.log('Run \x1b[36mrunr tasks\x1b[0m to see task status.');
+      console.log('Proceeding anyway...');
+      console.log('');
+    }
+  }
+
+  // Handle manual tasks: print recipe and exit without running worker
+  if (taskMetadata.type === 'manual') {
+    if (options.json) {
+      const jsonOutput = {
+        run_id: null,
+        run_dir: null,
+        repo_root: repoPath,
+        status: 'manual_task',
+        task_type: 'manual',
+        task_path: taskPath
+      };
+      console.log(JSON.stringify(jsonOutput));
+    } else {
+      console.log('');
+      console.log('\x1b[36m═══════════════════════════════════════════════════════════════\x1b[0m');
+      console.log('\x1b[1mManual Task Recipe\x1b[0m');
+      console.log('\x1b[36m═══════════════════════════════════════════════════════════════\x1b[0m');
+      console.log('');
+      console.log(taskText);
+      console.log('');
+      console.log('\x1b[36m═══════════════════════════════════════════════════════════════\x1b[0m');
+      console.log('');
+      console.log('This is a \x1b[33mmanual task\x1b[0m. Complete the steps above, then mark complete:');
+      console.log('');
+      console.log(`  \x1b[32mrunr tasks mark-complete ${options.task}\x1b[0m`);
+      console.log('');
+    }
+    return;
+  }
+
   // Auto-inject git excludes for agent artifacts BEFORE any git status checks.
   // This prevents .agent/ and .agent-worktrees/ from appearing as dirty on fresh repos.
   ensureRepoInfoExclude(repoPath, [
@@ -548,6 +609,13 @@ export async function runCommand(options: RunOptions): Promise<void> {
         guardSummary
       ].join('\n');
       runStore.writeSummary(summaryMd);
+
+      // Update task status to stopped (guard violation)
+      const relativeTaskPath = path.relative(repoPath, taskPath);
+      const normalizedTaskPath = relativeTaskPath.startsWith('.runr/')
+        ? relativeTaskPath
+        : `.runr/tasks/${path.basename(taskPath)}`;
+      markTaskStopped(repoPath, normalizedTaskPath, runId, 'guard_violation', 'Pre-run guard check failed');
     }
 
     if (options.json) {
@@ -645,6 +713,13 @@ export async function runCommand(options: RunOptions): Promise<void> {
       status: 'RUNNING'
     });
 
+    // Update task status to in_progress
+    const relativeTaskPath = path.relative(repoPath, taskPath);
+    const normalizedTaskPath = relativeTaskPath.startsWith('.runr/')
+      ? relativeTaskPath
+      : `.runr/tasks/${path.basename(taskPath)}`;
+    markTaskInProgress(repoPath, normalizedTaskPath, runId);
+
     await runSupervisorLoop({
       runStore,
       repoPath: effectiveRepoPath,
@@ -664,6 +739,10 @@ export async function runCommand(options: RunOptions): Promise<void> {
     if (finalState.stop_reason === 'complete') {
       // Run finished successfully
       clearActiveState(options.repo);
+      // Update task status to completed
+      if (finalState.checkpoint_commit_sha) {
+        markTaskCompleted(repoPath, normalizedTaskPath, runId, finalState.checkpoint_commit_sha);
+      }
     } else if (finalState.stop_reason) {
       // Run stopped with an error
       updateActiveState(options.repo, {
@@ -671,6 +750,8 @@ export async function runCommand(options: RunOptions): Promise<void> {
         status: 'STOPPED',
         stop_reason: finalState.stop_reason
       });
+      // Update task status to stopped
+      markTaskStopped(repoPath, normalizedTaskPath, runId, finalState.stop_reason);
 
       // Print stop footer with next steps (unless JSON mode)
       if (!options.json) {

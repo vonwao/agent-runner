@@ -5,6 +5,14 @@ import { normalizeOwnsPatterns } from '../ownership/normalize.js';
 // Re-export for backward compatibility
 export { normalizeOwnsPatterns } from '../ownership/normalize.js';
 
+/**
+ * Task type enum.
+ * - automated: Can be run by agent (default)
+ * - manual: Requires human action, agent prints recipe only
+ * - hybrid: Agent + human collaboration
+ */
+export type TaskType = 'automated' | 'manual' | 'hybrid';
+
 export interface TaskMetadata {
   raw: string;
   body: string;
@@ -15,6 +23,10 @@ export interface TaskMetadata {
   allowlist_add: string[];
   /** Task-local verification tier override */
   verification_tier: 'tier0' | 'tier1' | 'tier2' | null;
+  /** Task dependencies - paths to tasks that must be completed first */
+  depends_on: string[];
+  /** Task type - automated (default), manual, or hybrid */
+  type: TaskType;
 }
 
 function hasFrontmatter(raw: string): boolean {
@@ -101,6 +113,46 @@ function parseAllowlistAdd(frontmatter: Record<string, unknown> | null, body: st
 }
 
 /**
+ * Parse depends_on from frontmatter.
+ * Accepts string or string[] of task paths.
+ */
+function parseDependsOn(frontmatter: Record<string, unknown> | null): string[] {
+  if (!frontmatter?.depends_on) {
+    return [];
+  }
+
+  const value = frontmatter.depends_on;
+
+  if (typeof value === 'string') {
+    return [value];
+  }
+
+  if (Array.isArray(value)) {
+    return value.filter((item): item is string => typeof item === 'string');
+  }
+
+  return [];
+}
+
+/**
+ * Parse task type from frontmatter.
+ * Defaults to 'automated' if not specified.
+ */
+function parseTaskType(frontmatter: Record<string, unknown> | null): TaskType {
+  if (!frontmatter?.type) {
+    return 'automated';
+  }
+
+  const value = String(frontmatter.type).toLowerCase();
+
+  if (value === 'manual' || value === 'hybrid' || value === 'automated') {
+    return value;
+  }
+
+  return 'automated';
+}
+
+/**
  * Parse verification tier from frontmatter or body.
  * Enforces minimum tier0.
  */
@@ -165,6 +217,8 @@ export function loadTaskMetadata(taskPath: string): TaskMetadata {
   const ownsNormalized = normalizeOwnsPatterns(ownsRaw);
   const allowlistAdd = parseAllowlistAdd(frontmatter, body);
   const verificationTier = parseVerificationTier(frontmatter, body);
+  const dependsOn = parseDependsOn(frontmatter);
+  const taskType = parseTaskType(frontmatter);
 
   return {
     raw,
@@ -173,6 +227,8 @@ export function loadTaskMetadata(taskPath: string): TaskMetadata {
     owns_normalized: ownsNormalized,
     frontmatter,
     allowlist_add: allowlistAdd,
-    verification_tier: verificationTier
+    verification_tier: verificationTier,
+    depends_on: dependsOn,
+    type: taskType,
   };
 }
